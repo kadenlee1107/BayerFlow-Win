@@ -90,6 +90,18 @@ static inline void temporal_filter_vst_bilateral_gpu_ring_commit(
 static inline int temporal_filter_vst_bilateral_gpu_ring_wait(void)
 { return platform_gpu_temporal_wait(); }
 
+/* ---- Optical flow — single pair wrapper (matches Mac compute_apple_flow signature) ---- */
+static inline int compute_apple_flow(
+    const uint16_t *frame1, const uint16_t *frame2,
+    int green_w, int green_h,
+    float *fx, float *fy)
+{
+    float *fxp[1] = { fx };
+    float *fyp[1] = { fy };
+    const uint16_t *nbrs[1] = { frame2 };
+    return platform_of_compute_batch(frame1, nbrs, 1, green_w, green_h, fxp, fyp);
+}
+
 /* Zero-copy MTLBuffer path — not available on Windows, fall through to regular call */
 static inline uint16_t *temporal_filter_vst_bilateral_gpu_ring_shared(
     int shared_buf_idx,
@@ -3357,7 +3369,11 @@ int denoise_probe_format(const char *path) {
 
 /* ---- Camera metadata probe ---- */
 
-#define FFPROBE "/opt/homebrew/bin/ffprobe"
+#ifdef _WIN32
+#  define FFPROBE "ffprobe"
+#else
+#  define FFPROBE "/opt/homebrew/bin/ffprobe"
+#endif
 
 int denoise_probe_camera(const char *path, char *camera_model, int model_len,
                          int *iso) {

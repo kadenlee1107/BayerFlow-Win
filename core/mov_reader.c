@@ -206,9 +206,14 @@ fail_offsets:
     return -1;
 }
 
-/* Full path to Homebrew ffmpeg/ffprobe — GUI apps don't inherit shell PATH */
-#define FFPROBE "/opt/homebrew/bin/ffprobe"
-#define FFMPEG  "/opt/homebrew/bin/ffmpeg"
+/* ffmpeg/ffprobe: on Mac use Homebrew paths, on Windows use PATH lookup */
+#ifdef _WIN32
+#  define FFPROBE "ffprobe"
+#  define FFMPEG  "ffmpeg"
+#else
+#  define FFPROBE "/opt/homebrew/bin/ffprobe"
+#  define FFMPEG  "/opt/homebrew/bin/ffmpeg"
+#endif
 
 int mov_reader_probe_frame_count(const char *filename) {
     char cmd[2048];
