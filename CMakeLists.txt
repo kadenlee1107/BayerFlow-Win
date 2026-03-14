@@ -77,8 +77,7 @@ add_executable(bayerflow
 if(WIN32)
     set_target_properties(bayerflow PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
-        CUDA_ARCHITECTURES "75;80;86;89;90"  # Turing, Ampere, Ada, Hopper
-        # RTX 5000 (Blackwell) = sm_100 — add when CUDA 13 ships stable
+        CUDA_ARCHITECTURES "75;80;86;89;90;100"  # Turing, Ampere, Ada, Hopper, Blackwell (RTX 5000)
     )
 endif()
 
