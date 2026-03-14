@@ -68,63 +68,14 @@ static int                 g_init_h    = 0;
 static uint8_t *g_center_u8   = NULL;
 static uint8_t *g_neighbor_u8 = NULL;
 
-/* uint16 -> uint8 with 3x3 box blur for NVOF noise reduction.
- * Blurs the u16 data in-place (modifies src!), then converts to u8.
- * Fixed normalization: BL=6000, scale 8000 range to 0-255. */
-static void u16_to_u8_blur(uint16_t *src, uint8_t *dst, int w, int h) {
-    /* 3x3 box blur (in-place via temp row buffer) */
-    uint16_t *tmp = (uint16_t *)malloc(w * sizeof(uint16_t));
-    if (tmp) {
-        /* Horizontal pass */
-        for (int y = 0; y < h; y++) {
-            uint16_t *row = src + y * w;
-            for (int x = 0; x < w; x++) {
-                uint32_t sum = row[x];
-                if (x > 0) sum += row[x-1];
-                else sum += row[x];
-                if (x < w-1) sum += row[x+1];
-                else sum += row[x];
-                tmp[x] = (uint16_t)((sum + 1) / 3);
-            }
-            memcpy(row, tmp, w * sizeof(uint16_t));
-        }
-        /* Vertical pass */
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                uint32_t sum = src[y * w + x];
-                if (y > 0) sum += src[(y-1) * w + x];
-                else sum += src[y * w + x];
-                if (y < h-1) sum += src[(y+1) * w + x];
-                else sum += src[y * w + x];
-                tmp[y] = (uint16_t)((sum + 1) / 3);
-            }
-            for (int y = 0; y < h; y++)
-                src[y * w + x] = tmp[y];
-        }
-        free(tmp);
-    }
-
-    /* Convert to u8 with fixed normalization */
-    const float bl = 6000.0f;
-    const float scale = 255.0f / 8000.0f;
-    int n = w * h;
-    for (int i = 0; i < n; i++) {
-        float v = ((float)src[i] - bl) * scale;
-        if (v < 0.0f) v = 0.0f;
-        if (v > 255.0f) v = 255.0f;
-        dst[i] = (uint8_t)(v + 0.5f);
-    }
-}
-
-/* Simple u16->u8 without blur (for legacy/self-test) */
+/* uint16 -> uint8: simple >>6 shift, no black level subtraction.
+ * Maps 0-16383 uniformly to 0-255. Both frames get identical mapping
+ * so NVOF sees no artificial brightness shifts. Dark pixels stay at
+ * their natural low values instead of being clamped to 0. */
 static void u16_to_u8(const uint16_t *src, uint8_t *dst, int n) {
-    const float bl = 6000.0f;
-    const float scale = 255.0f / 8000.0f;
     for (int i = 0; i < n; i++) {
-        float v = ((float)src[i] - bl) * scale;
-        if (v < 0.0f) v = 0.0f;
-        if (v > 255.0f) v = 255.0f;
-        dst[i] = (uint8_t)(v + 0.5f);
+        int v = src[i] >> 6;
+        dst[i] = (uint8_t)(v > 255 ? 255 : v);
     }
 }
 

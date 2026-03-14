@@ -30,8 +30,8 @@ static uint32_t read_be32_buf(const uint8_t *p) {
 }
 
 /* Walk atom tree to find a child atom by tag within [start, end) */
-static long find_atom(FILE *f, long start, long end, const char *tag) {
-    long pos = start;
+static int64_t find_atom(FILE *f, long start, long end, const char *tag) {
+    int64_t pos = start;
     uint8_t h[8];
     while (pos < end - 7) {
         fseek(f, pos, SEEK_SET);
@@ -48,67 +48,67 @@ int set_frame_header_from_mov(const char *source_mov) {
     FILE *f = fopen(source_mov, "rb");
     if (!f) return -1;
 
-    fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size = ftello(f);
 
     /* Find moov */
-    long moov = find_atom(f, 0, file_size, "moov");
+    int64_t moov = find_atom(f, 0, file_size, "moov");
     if (moov < 0) { fclose(f); return -1; }
     uint8_t h[8];
-    fseek(f, moov, SEEK_SET); fread(h, 1, 8, f);
-    long moov_end = moov + (long)read_be32_buf(h);
+    fseeko(f, moov, SEEK_SET); fread(h, 1, 8, f);
+    int64_t moov_end = moov + (int64_t)read_be32_buf(h);
 
     /* Find first trak */
-    long trak = find_atom(f, moov + 8, moov_end, "trak");
+    int64_t trak = find_atom(f, moov + 8, moov_end, "trak");
     if (trak < 0) { fclose(f); return -1; }
-    fseek(f, trak, SEEK_SET); fread(h, 1, 8, f);
-    long trak_end = trak + (long)read_be32_buf(h);
+    fseeko(f, trak, SEEK_SET); fread(h, 1, 8, f);
+    int64_t trak_end = trak + (int64_t)read_be32_buf(h);
 
     /* trak → mdia */
-    long mdia = find_atom(f, trak + 8, trak_end, "mdia");
+    int64_t mdia = find_atom(f, trak + 8, trak_end, "mdia");
     if (mdia < 0) { fclose(f); return -1; }
-    fseek(f, mdia, SEEK_SET); fread(h, 1, 8, f);
-    long mdia_end = mdia + (long)read_be32_buf(h);
+    fseeko(f, mdia, SEEK_SET); fread(h, 1, 8, f);
+    int64_t mdia_end = mdia + (int64_t)read_be32_buf(h);
 
     /* mdia → minf */
-    long minf = find_atom(f, mdia + 8, mdia_end, "minf");
+    int64_t minf = find_atom(f, mdia + 8, mdia_end, "minf");
     if (minf < 0) { fclose(f); return -1; }
-    fseek(f, minf, SEEK_SET); fread(h, 1, 8, f);
-    long minf_end = minf + (long)read_be32_buf(h);
+    fseeko(f, minf, SEEK_SET); fread(h, 1, 8, f);
+    int64_t minf_end = minf + (int64_t)read_be32_buf(h);
 
     /* minf → stbl */
-    long stbl = find_atom(f, minf + 8, minf_end, "stbl");
+    int64_t stbl = find_atom(f, minf + 8, minf_end, "stbl");
     if (stbl < 0) { fclose(f); return -1; }
-    fseek(f, stbl, SEEK_SET); fread(h, 1, 8, f);
-    long stbl_end = stbl + (long)read_be32_buf(h);
+    fseeko(f, stbl, SEEK_SET); fread(h, 1, 8, f);
+    int64_t stbl_end = stbl + (int64_t)read_be32_buf(h);
 
     /* stbl → co64 (or stco) */
-    long co64 = find_atom(f, stbl + 8, stbl_end, "co64");
-    long first_frame_offset = -1;
+    int64_t co64 = find_atom(f, stbl + 8, stbl_end, "co64");
+    int64_t first_frame_offset = -1;
     if (co64 >= 0) {
         uint8_t buf[12];
-        fseek(f, co64 + 8, SEEK_SET);
+        fseeko(f, co64 + 8, SEEK_SET);
         if (fread(buf, 1, 8, f) == 8) {
             uint32_t count = read_be32_buf(buf + 4);
             if (count > 0) {
                 uint8_t off8[8];
                 if (fread(off8, 1, 8, f) == 8) {
-                    first_frame_offset = (long)(((uint64_t)read_be32_buf(off8) << 32) |
+                    first_frame_offset = (int64_t)(((uint64_t)read_be32_buf(off8) << 32) |
                                                  read_be32_buf(off8 + 4));
                 }
             }
         }
     } else {
-        long stco = find_atom(f, stbl + 8, stbl_end, "stco");
+        int64_t stco = find_atom(f, stbl + 8, stbl_end, "stco");
         if (stco >= 0) {
             uint8_t buf[8];
-            fseek(f, stco + 8, SEEK_SET);
+            fseeko(f, stco + 8, SEEK_SET);
             if (fread(buf, 1, 8, f) == 8) {
                 uint32_t count = read_be32_buf(buf + 4);
                 if (count > 0) {
                     uint8_t off4[4];
                     if (fread(off4, 1, 4, f) == 4) {
-                        first_frame_offset = (long)read_be32_buf(off4);
+                        first_frame_offset = (int64_t)read_be32_buf(off4);
                     }
                 }
             }
@@ -118,7 +118,7 @@ int set_frame_header_from_mov(const char *source_mov) {
     if (first_frame_offset < 0) { fclose(f); return -1; }
 
     /* Read frame header: frame_size(4) + 'prrf'(4) + header_len(2) + 86 bytes */
-    fseek(f, first_frame_offset, SEEK_SET);
+    fseeko(f, first_frame_offset, SEEK_SET);
     uint8_t frame_hdr[96];
     if (fread(frame_hdr, 1, 96, f) != 96) { fclose(f); return -1; }
 
@@ -129,8 +129,8 @@ int set_frame_header_from_mov(const char *source_mov) {
     }
 
     memcpy(frame_header_template, frame_hdr + 10, 86);
-    printf("Copied frame header template from %s (first frame at offset %ld)\n",
-           source_mov, first_frame_offset);
+    printf("Copied frame header template from %s (first frame at offset %lld)\n",
+           source_mov, (long long)first_frame_offset);
 
     fclose(f);
     return 0;

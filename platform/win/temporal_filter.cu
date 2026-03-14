@@ -121,8 +121,13 @@ __global__ void vst_bilateral_collect_k(
 
     if (fabsf(z_n - z_c) > params.z_reject) return;
 
+    /* Adaptive h for Phase 1 bilateral weighting (matches Phase 2) */
+    float cv_raw_c = (float)center_frame[idx];
+    float dark_h_boost_c = 1.0f + 0.5f * clamp_f(1.0f - cv_raw_c / 8000.0f, 0.0f, 1.0f);
+    float bright_h_reduce_c = 1.0f - 0.9f * clamp_f((cv_raw_c - 10000.0f) / 20000.0f, 0.0f, 1.0f);
+    float h_adj_c = params.h * dark_h_boost_c * bright_h_reduce_c;
     float diff1 = z_n - z_c;
-    float w1 = expf(-diff1 * diff1 / (2.0f * params.h * params.h));
+    float w1 = expf(-diff1 * diff1 / (2.0f * h_adj_c * h_adj_c));
     z_sum[idx]   += w1 * z_n;
     z_count[idx] += w1;
 
@@ -186,7 +191,13 @@ __global__ void vst_bilateral_fuse_k(
     float cv_raw = (float)center_frame[idx];
     float z_ref  = z_preest[idx];
 
-    float neg_inv_2h2 = -1.0f / (2.0f * params.h * params.h);
+    /* Adaptive h: dark pixels get wider bandwidth (more averaging),
+     * bright pixels get narrower bandwidth (preserve detail, prevent smearing).
+     * Matches Mac Metal TemporalFilter.metal lines 241-244. */
+    float dark_h_boost = 1.0f + 0.5f * clamp_f(1.0f - cv_raw / 8000.0f, 0.0f, 1.0f);
+    float bright_h_reduce = 1.0f - 0.9f * clamp_f((cv_raw - 10000.0f) / 20000.0f, 0.0f, 1.0f);
+    float h_adj = params.h * dark_h_boost * bright_h_reduce;
+    float neg_inv_2h2 = -1.0f / (2.0f * h_adj * h_adj);
     float flow_mag2   = fdx * fdx + fdy * fdy;
     float w_flow      = expf(-flow_mag2 / params.flow_sigma2);
 
