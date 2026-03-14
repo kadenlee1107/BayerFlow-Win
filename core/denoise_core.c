@@ -1,43 +1,60 @@
-#include "include/denoise_bridge.h"
-#include "../include/prores_raw_enc.h"
-#include "../include/frame_reader.h"
-#include "../include/mov_reader.h"
-#include "../include/dng_reader.h"
-#include "../include/dng_writer.h"
-#include "../include/motion_est.h"
-#include "../include/of_apple.h"
-#include "../include/temporal_filter.h"
-#include "../include/spatial_denoise.h"
-#include "../include/temporal_techniques.h"
-#include "../include/braw_enc.h"
-#include "../include/braw_writer.h"
-#include "../include/braw_dec.h"
-#include "../include/cineform_enc.h"
-#include "../include/denoise.h"
-#include "../include/rgb_temporal_filter.h"
-#include "../include/exr_writer.h"
-#include "../include/training_data.h"
-/* #include "include/wiener_temporal.h" */
+#include "denoise_bridge.h"
+#include "prores_raw_enc.h"
+#include "frame_reader.h"
+#include "mov_reader.h"
+#include "dng_reader.h"
+#include "dng_writer.h"
+#include "motion_est.h"
+#include "temporal_filter.h"
+#include "spatial_denoise.h"
+#include "temporal_techniques.h"
+#include "braw_enc.h"
+#include "braw_writer.h"
+#include "braw_dec.h"
+#include "cineform_enc.h"
+#include "denoise.h"
+#include "rgb_temporal_filter.h"
+#include "exr_writer.h"
+#include "training_data.h"
+#include "platform_of.h"
+#include "platform_gpu.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 #include <limits.h>
-#include <sys/time.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <pthread.h>
+
+#ifdef _WIN32
+#  include <windows.h>
+static double timer_now_impl(void) {
+    LARGE_INTEGER freq, cnt;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&cnt);
+    return (double)cnt.QuadPart / (double)freq.QuadPart;
+}
+#  define timer_now timer_now_impl
+/* pthreads-win32: link against pthreadVC2.lib */
+#  include <pthread.h>
+#else
+#  include <sys/time.h>
+#  include <pthread.h>
+#endif
+
 #ifdef __ARM_NEON__
 #include <arm_neon.h>
 #endif
 
 /* ---- Per-stage timing ---- */
+#ifndef _WIN32
 static double timer_now(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec + tv.tv_usec * 1e-6;
 }
+#endif
 
 static double t_accum_flow     = 0;
 static double t_accum_temporal = 0;
@@ -50,93 +67,85 @@ static double t_accum_decode   = 0;  /* just read+decode portion of I/O */
 static double t_accum_preproc  = 0;  /* dark/hotpix/green portion of I/O */
 static int    t_frame_count    = 0;
 
-/* GPU temporal filter (implemented in Swift/Metal via @_cdecl, falls back to CPU) */
-extern void temporal_filter_frame_gpu(
-    uint16_t *output,
-    const uint16_t **frames,
-    const float **flows_x, const float **flows_y,
-    int num_frames, int center_idx,
-    int width, int height,
-    float strength, float noise_sigma,
-    float chroma_boost, float dist_sigma, float flow_tightening,
-    const uint16_t *guide,       /* NULL = use center frame; non-NULL = guided NLM */
-    float center_weight);        /* 0.3 = low motion (neighbors dominate), 1.0 = high motion */
+/* ---- Platform GPU layer (Metal on Mac, CUDA on Windows) ----
+ * Thin wrappers so call sites are identical on both platforms. */
 
-extern int metal_gpu_available(void);
+static inline int metal_gpu_available(void) { return platform_gpu_available(); }
+static inline void gpu_ring_init(int s, int w, int h) { platform_gpu_ring_init(s, w, h); }
+static inline uint16_t *gpu_ring_frame_ptr(int s)    { return platform_gpu_ring_frame_ptr(s); }
+static inline uint16_t *gpu_ring_denoised_ptr(int s) { return platform_gpu_ring_denoised_ptr(s); }
 
-/* GPU-resident frame ring: frames live in Metal shared memory (MTLBuffer).
- * CPU writes via returned pointers; GPU reads directly — zero frame copy. */
-extern void gpu_ring_init(int num_slots, int width, int height);
-extern uint16_t *gpu_ring_frame_ptr(int slot);
-extern uint16_t *gpu_ring_denoised_ptr(int slot);
-extern void temporal_filter_frame_gpu_ring(
-    uint16_t *output,
-    const int *ring_slots, const int *use_denoised,
-    const float **flows_x, const float **flows_y,
-    int num_frames, int center_idx,
-    int width, int height,
-    float strength, float noise_sigma,
-    float chroma_boost, float dist_sigma, float flow_tightening,
-    const uint16_t *guide, float center_weight);
+static inline void temporal_filter_vst_bilateral_gpu_ring(
+    uint16_t *out, const int *rs, const int *ud,
+    const float **fx, const float **fy,
+    int nf, int ci, int w, int h,
+    float ns, float bl, float sg, float rn, int mn)
+{ platform_gpu_temporal_vst_bilateral(out, rs, ud, fx, fy, nf, ci, w, h, ns, bl, sg, rn, mn); }
 
-extern void temporal_filter_vst_bilateral_gpu_ring(
-    uint16_t *output,
-    const int *ring_slots, const int *use_denoised,
-    const float **flows_x, const float **flows_y,
-    int num_frames, int center_idx,
-    int width, int height,
-    float noise_sigma,
-    float black_level, float shot_gain, float read_noise,
-    int max_neighbors);
+static inline void temporal_filter_vst_bilateral_gpu_ring_commit(
+    uint16_t *out, const int *rs, const int *ud,
+    const float **fx, const float **fy,
+    int nf, int ci, int w, int h,
+    float ns, float bl, float sg, float rn, int mn)
+{ platform_gpu_temporal_vst_bilateral_commit(out, rs, ud, fx, fy, nf, ci, w, h, ns, bl, sg, rn, mn); }
 
-/* Async variant: commits GPU work and returns immediately.
- * Output is NOT valid until temporal_filter_vst_bilateral_gpu_ring_wait() returns 1.
- * Allows overlapping GPU temporal filter with ANE optical flow on the next frame. */
-extern void temporal_filter_vst_bilateral_gpu_ring_commit(
-    uint16_t *output,
-    const int *ring_slots, const int *use_denoised,
-    const float **flows_x, const float **flows_y,
-    int num_frames, int center_idx,
-    int width, int height,
-    float noise_sigma,
-    float black_level, float shot_gain, float read_noise,
-    int max_neighbors);
-extern int temporal_filter_vst_bilateral_gpu_ring_wait(void);
+static inline int temporal_filter_vst_bilateral_gpu_ring_wait(void)
+{ return platform_gpu_temporal_wait(); }
 
-/* ML denoiser (implemented in Swift/CoreML via @_cdecl) */
-extern void denoise_frame_ml(
-    uint16_t *output,
-    const uint16_t **frames,
-    int num_frames, int center_idx,
-    int width, int height,
-    float noise_sigma);
-
-extern int ml_denoiser_available(void);
-
-/* CNN post-filter (implemented in Swift/CoreML via @_cdecl) */
-extern void postfilter_frame_cnn(
-    uint16_t *output,
-    const uint16_t *input,
-    int width, int height);
-
-extern int cnn_postfilter_available(void);
-
-/* MPS GPU 4-channel CNN post-filter (faster replacement for CoreML path) */
-extern void postfilter_frame_mps(uint16_t *bayer, int width, int height, float blend_factor);
-extern void postfilter_frame_mps_shared(int shared_buf_idx, int width, int height, float blend_factor);
-extern int mps_postfilter_available(void);
-extern void mps_postfilter_set_protect_subjects(int enable, float protection, int invert_mask);
-extern void mps_postfilter_set_noise_model(float black_level, float read_noise, float shot_gain);
-
-/* Zero-copy TF→CNN: temporal filter writes to shared MTLBuffer, CNN reads from it */
-extern uint16_t *temporal_filter_vst_bilateral_gpu_ring_shared(
+/* Zero-copy MTLBuffer path — not available on Windows, fall through to regular call */
+static inline uint16_t *temporal_filter_vst_bilateral_gpu_ring_shared(
     int shared_buf_idx,
-    const int *ring_slots, const int *use_denoised,
-    const float **flows_x, const float **flows_y,
-    int num_frames, int center_idx,
-    int width, int height,
-    float noise_sigma,
-    float black_level, float shot_gain, float read_noise);
+    const int *rs, const int *ud,
+    const float **fx, const float **fy,
+    int nf, int ci, int w, int h,
+    float ns, float bl, float sg, float rn)
+{
+    (void)shared_buf_idx;
+    /* No shared-memory zero-copy on Windows — allocate and fill normally */
+    static uint16_t *fallback = NULL;
+    static size_t fallback_sz = 0;
+    size_t need = (size_t)w * h * sizeof(uint16_t);
+    if (need > fallback_sz) { free(fallback); fallback = malloc(need); fallback_sz = need; }
+    platform_gpu_temporal_vst_bilateral(fallback, rs, ud, fx, fy, nf, ci, w, h, ns, bl, sg, rn, 14);
+    return fallback;
+}
+
+/* Legacy NLM GPU ring path — CPU fallback (replaced by VST+Bilateral in tf_mode==2) */
+static inline void temporal_filter_frame_gpu_ring(
+    uint16_t *out, const int *rs, const int *ud,
+    const float **fx, const float **fy,
+    int nf, int ci, int w, int h,
+    float strength, float ns,
+    float chroma_boost, float dist_sigma, float flow_tightening,
+    const uint16_t *guide, float cw)
+{
+    /* Build frame ptrs from ring and call CPU path */
+    const uint16_t *ptrs[64] = {0};
+    for (int i = 0; i < nf && i < 64; i++)
+        ptrs[i] = ud[i] ? gpu_ring_denoised_ptr(rs[i]) : gpu_ring_frame_ptr(rs[i]);
+    TemporalFilterTuning tuning = { chroma_boost, dist_sigma, flow_tightening };
+    temporal_filter_frame_cpu(out, ptrs, (float**)fx, (float**)fy,
+                              nf, ci, w, h, strength, ns, &tuning);
+    (void)guide; (void)cw;
+}
+
+/* ---- ML / CNN post-filter — not yet available on Windows ---- */
+static inline int    ml_denoiser_available(void)         { return 0; }
+static inline int    cnn_postfilter_available(void)      { return 0; }
+static inline int    mps_postfilter_available(void)      { return 0; }
+static inline void   denoise_frame_ml(uint16_t *o, const uint16_t **f, int nf, int ci,
+                                      int w, int h, float ns)
+{ (void)o;(void)f;(void)nf;(void)ci;(void)w;(void)h;(void)ns; }
+static inline void   postfilter_frame_cnn(uint16_t *o, const uint16_t *in, int w, int h)
+{ (void)o;(void)in;(void)w;(void)h; }
+static inline void   postfilter_frame_mps(uint16_t *b, int w, int h, float blend)
+{ (void)b;(void)w;(void)h;(void)blend; }
+static inline void   postfilter_frame_mps_shared(int idx, int w, int h, float blend)
+{ (void)idx;(void)w;(void)h;(void)blend; }
+static inline void   mps_postfilter_set_protect_subjects(int e, float p, int inv)
+{ (void)e;(void)p;(void)inv; }
+static inline void   mps_postfilter_set_noise_model(float bl, float rn, float sg)
+{ (void)bl;(void)rn;(void)sg; }
 
 /* ---- Dark frame subtraction ---- */
 
@@ -581,7 +590,7 @@ static void *of_thread_func(void *arg) {
         }
 
         if (batch_n > 0) {
-            err = compute_apple_flow_batch(ctx->view_green[ctx->center_idx],
+            err = platform_of_compute_batch(ctx->view_green[ctx->center_idx],
                                            batch_nbrs, batch_n,
                                            ctx->green_w, ctx->green_h,
                                            batch_fx, batch_fy);
@@ -2154,7 +2163,7 @@ int denoise_file(
                         }
                     }
                     if (b_n > 0)
-                        compute_apple_flow_batch(view_greens_0[center], b_nbrs, b_n,
+                        platform_of_compute_batch(view_greens_0[center], b_nbrs, b_n,
                                                  green_w, green_h, b_fx, b_fy);
                     /* Scale flow for far neighbors */
                     size_t npix_sc = (size_t)green_w * green_h;
@@ -3151,7 +3160,7 @@ int denoise_preview_frame(
             }
         }
         if (ret == DENOISE_OK && batch_n > 0)
-            compute_apple_flow_batch(green_frames[center], batch_nbrs, batch_n,
+            platform_of_compute_batch(green_frames[center], batch_nbrs, batch_n,
                                      green_w, green_h, batch_fx, batch_fy);
         /* Scale flow for far neighbors */
         if (ret == DENOISE_OK) {
