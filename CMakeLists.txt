@@ -55,7 +55,7 @@ if(WIN32)
 
     include_directories(
         ${CUDAToolkit_INCLUDE_DIRS}
-        ${NVOF_SDK_ROOT}/Interface
+        ${NVOF_SDK_ROOT}/NvOFInterface
     )
 
 else()
@@ -88,14 +88,8 @@ if(WIN32)
     # CUDA runtime
     target_link_libraries(bayerflow CUDA::cudart CUDA::cuda_driver)
 
-    # NVOF SDK library
-    if(EXISTS "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow_1.0.lib")
-        target_link_libraries(bayerflow "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow_1.0.lib")
-    elseif(EXISTS "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow.lib")
-        target_link_libraries(bayerflow "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow.lib")
-    else()
-        message(WARNING "NVOF lib not found at ${NVOF_SDK_ROOT}/Lib/x64/ — OF will be disabled")
-    endif()
+    # NVOF SDK 5.x: header-only — runtime loads nvofapi64.dll from NVIDIA driver
+    # No .lib to link; LoadLibrary("nvofapi64.dll") is called at startup.
 
     # pthreads via vcpkg
     find_package(pthreads QUIET)
