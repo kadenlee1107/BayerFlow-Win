@@ -333,8 +333,10 @@ __global__ void vst_bilateral_finalize_k(
 static int      g_num_slots  = 0;
 static int      g_width      = 0;
 static int      g_height     = 0;
-static uint16_t *g_frame_ring[MAX_RING_SLOTS];
-static uint16_t *g_denoised_ring[MAX_RING_SLOTS];
+static uint16_t *g_frame_ring[MAX_RING_SLOTS];      /* GPU VRAM */
+static uint16_t *g_denoised_ring[MAX_RING_SLOTS];   /* GPU VRAM */
+static uint16_t *g_frame_cpu[MAX_RING_SLOTS];        /* CPU pinned (host-visible) */
+static uint16_t *g_denoised_cpu[MAX_RING_SLOTS];     /* CPU pinned (host-visible) */
 
 /* GPU-side accumulator buffers (reused across frames) */
 static float *g_z_sum      = NULL;
@@ -364,7 +366,10 @@ extern "C" int bf_cuda_init(int num_slots, int width, int height) {
     for (int i = 0; i < g_num_slots; i++) {
         if (g_frame_ring[i])    cudaFree(g_frame_ring[i]);
         if (g_denoised_ring[i]) cudaFree(g_denoised_ring[i]);
+        if (g_frame_cpu[i])     cudaFreeHost(g_frame_cpu[i]);
+        if (g_denoised_cpu[i])  cudaFreeHost(g_denoised_cpu[i]);
         g_frame_ring[i] = g_denoised_ring[i] = NULL;
+        g_frame_cpu[i] = g_denoised_cpu[i] = NULL;
     }
     if (g_z_sum)    { cudaFree(g_z_sum);    g_z_sum = NULL; }
     if (g_z_count)  { cudaFree(g_z_count);  g_z_count = NULL; }
@@ -382,10 +387,17 @@ extern "C" int bf_cuda_init(int num_slots, int width, int height) {
     size_t frame_bytes = (size_t)width * height * sizeof(uint16_t);
     size_t acc_bytes   = (size_t)width * height * sizeof(float);
 
-    /* cudaMallocManaged: unified memory — CPU writes, GPU reads, no explicit copy */
+    /* GPU VRAM for kernels + CPU pinned memory for host access */
     for (int i = 0; i < g_num_slots; i++) {
-        if (!cuda_ok(cudaMallocManaged(&g_frame_ring[i],    frame_bytes), "frame_ring"))    return 0;
-        if (!cuda_ok(cudaMallocManaged(&g_denoised_ring[i], frame_bytes), "denoised_ring")) return 0;
+        if (!cuda_ok(cudaMalloc(&g_frame_ring[i],    frame_bytes), "frame_ring_gpu"))    return 0;
+        if (!cuda_ok(cudaMalloc(&g_denoised_ring[i], frame_bytes), "denoised_ring_gpu")) return 0;
+        if (!cuda_ok(cudaMallocHost(&g_frame_cpu[i],    frame_bytes), "frame_cpu"))    return 0;
+        if (!cuda_ok(cudaMallocHost(&g_denoised_cpu[i], frame_bytes), "denoised_cpu")) return 0;
+        /* Zero-init to prevent black frames from uninitialized GPU memory */
+        cudaMemset(g_frame_ring[i],    0, frame_bytes);
+        cudaMemset(g_denoised_ring[i], 0, frame_bytes);
+        memset(g_frame_cpu[i],    0, frame_bytes);
+        memset(g_denoised_cpu[i], 0, frame_bytes);
     }
 
     /* Accumulator buffers live only on GPU */
@@ -404,12 +416,12 @@ extern "C" int bf_cuda_init(int num_slots, int width, int height) {
 
 extern "C" uint16_t *bf_cuda_ring_frame_ptr(int slot) {
     if (slot < 0 || slot >= g_num_slots) return NULL;
-    return g_frame_ring[slot];
+    return g_frame_cpu[slot];  /* CPU pinned — host writes here */
 }
 
 extern "C" uint16_t *bf_cuda_ring_denoised_ptr(int slot) {
     if (slot < 0 || slot >= g_num_slots) return NULL;
-    return g_denoised_ring[slot];
+    return g_denoised_cpu[slot];  /* CPU pinned — host writes here */
 }
 
 extern "C" int bf_cuda_available(void) {
@@ -422,10 +434,28 @@ static float *g_flow_x_gpu = NULL;
 static float *g_flow_y_gpu = NULL;
 static size_t g_flow_alloc = 0;
 
-static float *get_flow_gpu(const float *cpu_flow, int n_pixels) {
-    /* Just return host pointer — unified memory on newer GPUs.
-     * For discrete GPUs with separate VRAM, replace with cudaMalloc + cudaMemcpy. */
-    return (float *)cpu_flow;
+/* Flow upload cache: copy CPU flow arrays to GPU VRAM */
+#define MAX_FLOW_CACHE 64
+static float *g_flow_cache[MAX_FLOW_CACHE];
+static int    g_flow_cache_count = 0;
+
+static void free_flow_cache(void) {
+    for (int i = 0; i < g_flow_cache_count; i++) {
+        cudaFree(g_flow_cache[i]);
+        g_flow_cache[i] = NULL;
+    }
+    g_flow_cache_count = 0;
+}
+
+static float *upload_flow(const float *cpu_flow, size_t n_pixels, cudaStream_t stream) {
+    if (!cpu_flow) return NULL;
+    if (g_flow_cache_count >= MAX_FLOW_CACHE) return NULL;
+    float *gpu_ptr = NULL;
+    size_t bytes = n_pixels * sizeof(float);
+    if (cudaMalloc(&gpu_ptr, bytes) != cudaSuccess) return NULL;
+    cudaMemcpyAsync(gpu_ptr, cpu_flow, bytes, cudaMemcpyHostToDevice, stream);
+    g_flow_cache[g_flow_cache_count++] = gpu_ptr;
+    return gpu_ptr;
 }
 
 static void launch_vst_bilateral(
@@ -454,8 +484,19 @@ static void launch_vst_bilateral(
              (height + BLK_H - 1) / BLK_H);
     size_t npix = (size_t)width * height;
 
-    /* Ensure unified memory is visible to GPU before kernel launch */
-    cudaStreamSynchronize(g_stream);
+    /* Copy CPU pinned frame data → GPU VRAM before kernel launch */
+    {
+        size_t fb = (size_t)width * height * sizeof(uint16_t);
+        for (int f = 0; f < num_frames; f++) {
+            int s = ring_slots[f];
+            if (s >= 0 && s < g_num_slots) {
+                if (use_denoised[f])
+                    cudaMemcpyAsync(g_denoised_ring[s], g_denoised_cpu[s], fb, cudaMemcpyHostToDevice, g_stream);
+                else
+                    cudaMemcpyAsync(g_frame_ring[s], g_frame_cpu[s], fb, cudaMemcpyHostToDevice, g_stream);
+            }
+        }
+    }
 
     /* Clear accumulators */
     cudaMemsetAsync(g_z_sum,    0, npix * sizeof(float), g_stream);
@@ -469,6 +510,16 @@ static void launch_vst_bilateral(
         ? g_denoised_ring[ring_slots[center_idx]]
         : g_frame_ring[ring_slots[center_idx]];
 
+    /* ---- Upload flow arrays to GPU ---- */
+    size_t green_npix = (size_t)(width >> 1) * (height >> 1);
+    free_flow_cache();
+    float *gpu_flows_x[64] = {0};
+    float *gpu_flows_y[64] = {0};
+    for (int f = 0; f < num_frames && f < 64; f++) {
+        if (flows_x[f]) gpu_flows_x[f] = upload_flow(flows_x[f], green_npix, g_stream);
+        if (flows_y[f]) gpu_flows_y[f] = upload_flow(flows_y[f], green_npix, g_stream);
+    }
+
     /* ---- Pass 1a: Collect (one dispatch per neighbor) ---- */
     int neighbor_count = 0;
     for (int dist = 1; dist <= num_frames; dist++) {
@@ -477,7 +528,7 @@ static void launch_vst_bilateral(
             if (neighbor_count >= max_neighbors) break;
             int f = center_idx + dist * sign;
             if (f < 0 || f >= num_frames) continue;
-            if (!flows_x[f] || !flows_y[f]) continue;
+            if (!gpu_flows_x[f] || !gpu_flows_y[f]) continue;
 
             const uint16_t *nbr = use_denoised[f]
                 ? g_denoised_ring[ring_slots[f]]
@@ -485,7 +536,7 @@ static void launch_vst_bilateral(
 
             vst_bilateral_collect_k<<<grd, blk, 0, g_stream>>>(
                 center, nbr,
-                flows_x[f], flows_y[f],
+                gpu_flows_x[f], gpu_flows_y[f],
                 g_z_sum, g_z_count, g_max_flow, p);
 
             neighbor_count++;
@@ -504,7 +555,7 @@ static void launch_vst_bilateral(
             if (neighbor_count >= max_neighbors) break;
             int f = center_idx + dist * sign;
             if (f < 0 || f >= num_frames) continue;
-            if (!flows_x[f] || !flows_y[f]) continue;
+            if (!gpu_flows_x[f] || !gpu_flows_y[f]) continue;
 
             const uint16_t *nbr = use_denoised[f]
                 ? g_denoised_ring[ring_slots[f]]
@@ -512,7 +563,7 @@ static void launch_vst_bilateral(
 
             vst_bilateral_fuse_k<<<grd, blk, 0, g_stream>>>(
                 center, nbr,
-                flows_x[f], flows_y[f],
+                gpu_flows_x[f], gpu_flows_y[f],
                 g_val_sum, g_w_sum, g_z_preest, p);
 
             neighbor_count++;
@@ -520,26 +571,58 @@ static void launch_vst_bilateral(
     }
 
     /* ---- Pass 3: Finalize ---- */
-    /* Write to a managed output buffer so CPU can read without explicit copy */
+    /* Temp GPU output buffer */
     uint16_t *gpu_out;
-    cudaMallocManaged(&gpu_out, npix * sizeof(uint16_t));
+    cudaMalloc(&gpu_out, npix * sizeof(uint16_t));
 
     vst_bilateral_finalize_k<<<grd, blk, 0, g_stream>>>(
         center, g_val_sum, g_w_sum, g_max_flow, gpu_out, p);
 
+    /* Free flow GPU copies */
+    free_flow_cache();
+
     if (commit_only) {
-        /* Async: record event, CPU continues. waitGPU() copies output. */
-        cudaEventRecord(g_done_event, g_stream);
-        g_async_pending = 1;
-        g_async_output  = output;
-        /* Store gpu_out pointer for wait */
-        static uint16_t *s_gpu_out = NULL;
-        if (s_gpu_out) cudaFree(s_gpu_out);
-        s_gpu_out = gpu_out;
+        /* Windows/CUDA: no shared buffers like Metal, so we must sync+copy.
+         * Treat commit the same as sync to ensure data reaches CPU. */
+        cudaStreamSynchronize(g_stream);
+        cudaMemcpy(output, gpu_out, npix * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+        {
+            static int gpu_dbg2 = 0;
+            if (gpu_dbg2 < 5) {
+                fprintf(stderr, "GPU_TF commit output: ptr=%p val[0]=%u val[1000]=%u\n",
+                        (void*)output, output[0], output[1000]);
+                gpu_dbg2++;
+            }
+        }
+
+        /* Also update denoised ring */
+        int center_slot = ring_slots[center_idx];
+        if (center_slot >= 0 && center_slot < g_num_slots) {
+            memcpy(g_denoised_cpu[center_slot], output, npix * sizeof(uint16_t));
+        }
+
+        cudaFree(gpu_out);
+        g_async_pending = 0;
     } else {
         /* Sync: wait for GPU, copy output to CPU buffer */
         cudaStreamSynchronize(g_stream);
         cudaMemcpy(output, gpu_out, npix * sizeof(uint16_t), cudaMemcpyDeviceToHost);
+        {
+            static int gpu_dbg = 0;
+            if (gpu_dbg < 5) {
+                fprintf(stderr, "GPU_TF output: ptr=%p val[0]=%u val[1000]=%u val[mid]=%u (npix=%zu)\n",
+                        (void*)output, output[0], output[1000], output[npix/2], npix);
+                gpu_dbg++;
+            }
+        }
+
+        /* Also update the denoised ring slot so subsequent frames can use it */
+        int center_slot = ring_slots[center_idx];
+        if (center_slot >= 0 && center_slot < g_num_slots) {
+            memcpy(g_denoised_cpu[center_slot], output, npix * sizeof(uint16_t));
+            cudaMemcpy(g_denoised_ring[center_slot], gpu_out, npix * sizeof(uint16_t), cudaMemcpyDeviceToDevice);
+        }
+
         cudaFree(gpu_out);
     }
 }

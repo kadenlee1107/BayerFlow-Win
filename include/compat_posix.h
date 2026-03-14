@@ -1,23 +1,17 @@
-/* compat_posix.h — POSIX → MSVC shims for BayerFlow Windows build
- *
- * Force-included into every C/CXX translation unit via /FI in CMakeLists.txt.
- * Provides: M_PI, popen/pclose, fseeko/ftello, strcasecmp, mkdir, __builtin_clz,
- *           _CRT_SECURE_NO_WARNINGS, stdatomic shim.
+/* compat_posix.h -- POSIX to MSVC shims for BayerFlow Windows build
+ * Force-included via /FI in CMakeLists.txt.
  */
 #ifndef BAYERFLOW_COMPAT_POSIX_H
 #define BAYERFLOW_COMPAT_POSIX_H
 
 #ifdef _WIN32
 
-/* Suppress MSVC safe-function warnings (fopen, strncpy, etc.) */
 #ifndef _CRT_SECURE_NO_WARNINGS
 #  define _CRT_SECURE_NO_WARNINGS
 #endif
 #ifndef _CRT_NONSTDC_NO_WARNINGS
 #  define _CRT_NONSTDC_NO_WARNINGS
 #endif
-
-/* M_PI and friends */
 #ifndef _USE_MATH_DEFINES
 #  define _USE_MATH_DEFINES
 #endif
@@ -30,13 +24,11 @@
 #include <stdio.h>
 #include <string.h>
 
-/* popen / pclose */
 #ifndef popen
 #  define popen  _popen
 #  define pclose _pclose
 #endif
 
-/* fseeko / ftello — 64-bit file positions */
 #ifndef fseeko
 #  define fseeko _fseeki64
 #endif
@@ -44,7 +36,6 @@
 #  define ftello _ftelli64
 #endif
 
-/* strcasecmp / strncasecmp */
 #ifndef strcasecmp
 #  define strcasecmp  _stricmp
 #endif
@@ -52,25 +43,25 @@
 #  define strncasecmp _strnicmp
 #endif
 
-/* mkdir — POSIX takes (path, mode), Windows _mkdir takes only path */
 #ifndef mkdir
 #  define mkdir(path, mode) _mkdir(path)
 #endif
 
-/* __builtin_clz — count leading zeros (undefined for 0, same as GCC) */
 static __inline int __builtin_clz(unsigned int x) {
     unsigned long idx;
     if (_BitScanReverse(&idx, (unsigned long)x)) return 31 - (int)idx;
     return 32;
 }
 
-/* ssize_t */
 #ifndef ssize_t
 typedef long long ssize_t;
 #endif
 
-/* S_ISDIR — MSVC sys/stat.h defines S_IFDIR but not the IS* macros */
+/* stat/struct stat -- 64-bit for large file support (>2GB) */
 #include <sys/stat.h>
+#define stat _stat64
+#define fstat _fstat64
+
 #ifndef S_ISDIR
 #  define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #endif
@@ -79,5 +70,4 @@ typedef long long ssize_t;
 #endif
 
 #endif /* _WIN32 */
-
 #endif /* BAYERFLOW_COMPAT_POSIX_H */

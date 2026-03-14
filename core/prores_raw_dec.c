@@ -544,6 +544,40 @@ static int decode_tile(const uint8_t *tile_data, int tile_size,
 
 /* ---- Frame Decoder ---- */
 
+
+#ifdef _WIN32
+typedef struct {
+    const uint8_t *frame_data;
+    const int *tile_offsets;
+    const int *tile_sizes;
+    uint16_t *bayer_out;
+    int width, height, nb_tw;
+    const uint8_t *qmat;
+    volatile long error_flag;
+    volatile long next_tile;
+    int nb_tiles;
+} TileDecodeCtx;
+
+static DWORD WINAPI tile_thread_func(LPVOID param) {
+    TileDecodeCtx *ctx = (TileDecodeCtx *)param;
+    for (;;) {
+        long t = InterlockedExchangeAdd(&ctx->next_tile, 1);
+        if (t >= ctx->nb_tiles) break;
+        if (ctx->error_flag) break;
+        int ty = (int)t / ctx->nb_tw;
+        int tx = (int)t % ctx->nb_tw;
+        int tile_x = tx * 256;
+        int tile_y = ty * 16;
+        if (decode_tile(ctx->frame_data + ctx->tile_offsets[t], ctx->tile_sizes[t],
+                        ctx->bayer_out, ctx->width, tile_x, tile_y,
+                        ctx->width, ctx->height, ctx->qmat) != 0) {
+            InterlockedExchange(&ctx->error_flag, 1);
+        }
+    }
+    return 0;
+}
+#endif
+
 int prores_raw_decode_frame(const uint8_t *frame_data, int frame_size,
                             uint16_t *bayer_out, int width, int height) {
     if (frame_size < 96) return -1;
@@ -635,6 +669,31 @@ int prores_raw_decode_frame(const uint8_t *frame_data, int frame_size,
         }
     });
     decode_error = decode_error_blk;
+#elif defined(_WIN32)
+    {
+        TileDecodeCtx ctx;
+        ctx.frame_data = frame_data;
+        ctx.tile_offsets = tile_offsets;
+        ctx.tile_sizes = tile_sizes;
+        ctx.bayer_out = bayer_out;
+        ctx.width = width;
+        ctx.height = height;
+        ctx.nb_tw = nb_tw;
+        ctx.qmat = frame_qmat;
+        ctx.error_flag = 0;
+        ctx.next_tile = 0;
+        ctx.nb_tiles = nb_tiles;
+        SYSTEM_INFO si; GetSystemInfo(&si);
+        int num_threads = (int)si.dwNumberOfProcessors;
+        if (num_threads < 1) num_threads = 1;
+        if (num_threads > 32) num_threads = 32;
+        HANDLE threads[32];
+        for (int i = 0; i < num_threads; i++)
+            threads[i] = CreateThread(NULL, 0, tile_thread_func, &ctx, 0, NULL);
+        WaitForMultipleObjects(num_threads, threads, TRUE, INFINITE);
+        for (int i = 0; i < num_threads; i++) CloseHandle(threads[i]);
+        decode_error = (int)ctx.error_flag;
+    }
 #else
     for (int t = 0; t < nb_tiles && !decode_error; t++) {
         int ty = t / nb_tw;

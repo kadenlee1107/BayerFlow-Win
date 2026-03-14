@@ -111,13 +111,22 @@ static inline uint16_t *temporal_filter_vst_bilateral_gpu_ring_shared(
     float ns, float bl, float sg, float rn)
 {
     (void)shared_buf_idx;
-    /* No shared-memory zero-copy on Windows — allocate and fill normally */
-    static uint16_t *fallback = NULL;
-    static size_t fallback_sz = 0;
+    /* Windows: use separate buffers per ping slot to avoid overwrite.
+     * On Mac, this returns a shared Metal buffer; on Windows we need two
+     * independent buffers since the async encode pipeline may still be
+     * reading the previous frame's data. */
+    static uint16_t *shared_bufs[2] = {NULL, NULL};
+    static size_t shared_sz = 0;
     size_t need = (size_t)w * h * sizeof(uint16_t);
-    if (need > fallback_sz) { free(fallback); fallback = malloc(need); fallback_sz = need; }
-    platform_gpu_temporal_vst_bilateral(fallback, rs, ud, fx, fy, nf, ci, w, h, ns, bl, sg, rn, 14);
-    return fallback;
+    int slot = shared_buf_idx & 1;  /* 0 or 1 */
+    if (need > shared_sz) {
+        free(shared_bufs[0]); free(shared_bufs[1]);
+        shared_bufs[0] = (uint16_t *)malloc(need);
+        shared_bufs[1] = (uint16_t *)malloc(need);
+        shared_sz = need;
+    }
+    platform_gpu_temporal_vst_bilateral(shared_bufs[slot], rs, ud, fx, fy, nf, ci, w, h, ns, bl, sg, rn, 14);
+    return shared_bufs[slot];
 }
 
 /* Legacy NLM GPU ring path — CPU fallback (replaced by VST+Bilateral in tf_mode==2) */
@@ -2444,6 +2453,7 @@ int denoise_file(
 
                 /* Kick Encode(f-1) — CNN just finished on buf[1-ping] */
                 enc_ctx.denoised_in = denoised_bufs[1 - ping];
+                fprintf(stderr, "ENC_KICK: frame f-1, buf[%d], ptr=%p, val[0]=%u val[1000]=%u\n", 1-ping, (void*)enc_ctx.denoised_in, enc_ctx.denoised_in[0], enc_ctx.denoised_in[1000]);
                 enc_ctx.encode_out  = encode_bufs[1 - ping];
                 enc_ctx.downshift_buf = downshift_bufs[1 - ping];
                 if (output_is_dng)
