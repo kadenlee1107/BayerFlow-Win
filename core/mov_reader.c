@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 /* --- Big-endian helpers for MOV atom parsing --- */
 static uint32_t read_be32(const uint8_t *p) {
@@ -34,15 +35,24 @@ static uint64_t read_be64(const uint8_t *p) {
     return ((uint64_t)read_be32(p) << 32) | (uint64_t)read_be32(p + 4);
 }
 
-/* Walk atom tree in a file to find child atom by 4-char tag within [start, end). */
-static long find_atom_file(FILE *f, long start, long end, const char *tag) {
-    long pos = start;
-    uint8_t h[8];
+/* Walk atom tree in a file to find child atom by 4-char tag within [start, end).
+ * Uses 64-bit offsets (fseeko/_fseeki64) so files >2 GB work correctly. */
+static int64_t find_atom_file(FILE *f, int64_t start, int64_t end, const char *tag) {
+    int64_t pos = start;
+    uint8_t h[16];
     while (pos < end - 7) {
-        fseek(f, pos, SEEK_SET);
+        fseeko(f, pos, SEEK_SET);
         if (fread(h, 1, 8, f) != 8) return -1;
-        uint32_t sz = read_be32(h);
-        if (sz < 8 || pos + (long)sz > end) return -1;
+        uint32_t sz32 = read_be32(h);
+        int64_t sz;
+        if (sz32 == 1) {
+            /* Extended 64-bit size follows the 4-byte tag */
+            if (fread(h + 8, 1, 8, f) != 8) return -1;
+            sz = (int64_t)read_be64(h + 8);
+        } else {
+            sz = (int64_t)sz32;
+        }
+        if (sz < 8 || pos + sz > end) return -1;
         if (memcmp(h + 4, tag, 4) == 0) return pos;
         pos += sz;
     }
@@ -54,47 +64,48 @@ static long find_atom_file(FILE *f, long start, long end, const char *tag) {
  * Returns 0 on success, -1 on failure (caller should fall back to FFmpeg). */
 static int mov_reader_open_native(MovReader *r) {
     FILE *f = fopen(r->filename, "rb");
-    if (!f) return -1;
+    if (!f) { fprintf(stderr, "mov_reader: fopen failed: %s\n", r->filename); return -1; }
 
-    fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size = (int64_t)ftello(f);
+    fprintf(stderr, "mov_reader: file size = %lld bytes\n", (long long)file_size);
 
     /* Find moov atom */
-    long moov = find_atom_file(f, 0, file_size, "moov");
-    if (moov < 0) { fclose(f); return -1; }
+    int64_t moov = find_atom_file(f, 0, file_size, "moov");
+    if (moov < 0) { fprintf(stderr, "mov_reader: moov atom not found\n"); fclose(f); return -1; }
     uint8_t h[8];
-    fseek(f, moov, SEEK_SET); fread(h, 1, 8, f);
-    long moov_end = moov + (long)read_be32(h);
+    fseeko(f, moov, SEEK_SET); fread(h, 1, 8, f);
+    int64_t moov_end = moov + (int64_t)read_be32(h);
 
     /* Find first trak */
-    long trak = find_atom_file(f, moov + 8, moov_end, "trak");
-    if (trak < 0) { fclose(f); return -1; }
-    fseek(f, trak, SEEK_SET); fread(h, 1, 8, f);
-    long trak_end = trak + (long)read_be32(h);
+    int64_t trak = find_atom_file(f, moov + 8, moov_end, "trak");
+    if (trak < 0) { fprintf(stderr, "mov_reader: trak not found\n"); fclose(f); return -1; }
+    fseeko(f, trak, SEEK_SET); fread(h, 1, 8, f);
+    int64_t trak_end = trak + (int64_t)read_be32(h);
 
     /* trak → mdia */
-    long mdia = find_atom_file(f, trak + 8, trak_end, "mdia");
-    if (mdia < 0) { fclose(f); return -1; }
-    fseek(f, mdia, SEEK_SET); fread(h, 1, 8, f);
-    long mdia_end = mdia + (long)read_be32(h);
+    int64_t mdia = find_atom_file(f, trak + 8, trak_end, "mdia");
+    if (mdia < 0) { fprintf(stderr, "mov_reader: mdia not found\n"); fclose(f); return -1; }
+    fseeko(f, mdia, SEEK_SET); fread(h, 1, 8, f);
+    int64_t mdia_end = mdia + (int64_t)read_be32(h);
 
     /* mdia → minf */
-    long minf = find_atom_file(f, mdia + 8, mdia_end, "minf");
-    if (minf < 0) { fclose(f); return -1; }
-    fseek(f, minf, SEEK_SET); fread(h, 1, 8, f);
-    long minf_end = minf + (long)read_be32(h);
+    int64_t minf = find_atom_file(f, mdia + 8, mdia_end, "minf");
+    if (minf < 0) { fprintf(stderr, "mov_reader: minf not found\n"); fclose(f); return -1; }
+    fseeko(f, minf, SEEK_SET); fread(h, 1, 8, f);
+    int64_t minf_end = minf + (int64_t)read_be32(h);
 
     /* minf → stbl */
-    long stbl = find_atom_file(f, minf + 8, minf_end, "stbl");
-    if (stbl < 0) { fclose(f); return -1; }
-    fseek(f, stbl, SEEK_SET); fread(h, 1, 8, f);
-    long stbl_end = stbl + (long)read_be32(h);
+    int64_t stbl = find_atom_file(f, minf + 8, minf_end, "stbl");
+    if (stbl < 0) { fprintf(stderr, "mov_reader: stbl not found\n"); fclose(f); return -1; }
+    fseeko(f, stbl, SEEK_SET); fread(h, 1, 8, f);
+    int64_t stbl_end = stbl + (int64_t)read_be32(h);
 
     /* ---- Read stsd for dimensions and codec verification ---- */
-    long stsd = find_atom_file(f, stbl + 8, stbl_end, "stsd");
+    int64_t stsd = find_atom_file(f, stbl + 8, stbl_end, "stsd");
     if (stsd >= 0) {
         /* stsd: [4:size][4:'stsd'][4:ver/flags][4:count] = 16 bytes header */
-        fseek(f, stsd + 16, SEEK_SET);
+        fseeko(f, stsd + 16, SEEK_SET);
         /* Entry: [4:entry_size][4:codec][6:reserved][2:dri]
          *        [2:ver][2:rev][4:vendor][4:tq][4:sq][2:width][2:height] = 36 bytes */
         uint8_t entry[36];
@@ -104,16 +115,17 @@ static int mov_reader_open_native(MovReader *r) {
         }
     }
     if (r->width <= 0 || r->height <= 0) {
+        fprintf(stderr, "mov_reader: invalid dimensions %dx%d\n", r->width, r->height);
         fclose(f);
         return -1;
     }
 
     /* ---- Read stsz for per-frame compressed sizes ---- */
-    long stsz = find_atom_file(f, stbl + 8, stbl_end, "stsz");
+    int64_t stsz = find_atom_file(f, stbl + 8, stbl_end, "stsz");
     if (stsz < 0) { fclose(f); return -1; }
 
     uint8_t stsz_hdr[12];
-    fseek(f, stsz + 8, SEEK_SET); /* skip atom size+tag */
+    fseeko(f, stsz + 8, SEEK_SET); /* skip atom size+tag */
     if (fread(stsz_hdr, 1, 12, f) != 12) { fclose(f); return -1; }
     /* [4:ver/flags][4:sample_size][4:count] */
     uint32_t uniform_size = read_be32(stsz_hdr + 4);
@@ -147,10 +159,10 @@ static int mov_reader_open_native(MovReader *r) {
         fclose(f); return -1;
     }
 
-    long co64 = find_atom_file(f, stbl + 8, stbl_end, "co64");
+    int64_t co64 = find_atom_file(f, stbl + 8, stbl_end, "co64");
     if (co64 >= 0) {
         uint8_t co64_hdr[8];
-        fseek(f, co64 + 8, SEEK_SET);
+        fseeko(f, co64 + 8, SEEK_SET);
         if (fread(co64_hdr, 1, 8, f) != 8) goto fail_offsets;
         uint32_t off_count = read_be32(co64_hdr + 4);
         if (off_count != sample_count) goto fail_offsets;
@@ -164,11 +176,11 @@ static int mov_reader_open_native(MovReader *r) {
             r->frame_offsets[i] = read_be64(off_buf + i * 8);
         free(off_buf);
     } else {
-        long stco = find_atom_file(f, stbl + 8, stbl_end, "stco");
+        int64_t stco = find_atom_file(f, stbl + 8, stbl_end, "stco");
         if (stco < 0) goto fail_offsets;
 
         uint8_t stco_hdr[8];
-        fseek(f, stco + 8, SEEK_SET);
+        fseeko(f, stco + 8, SEEK_SET);
         if (fread(stco_hdr, 1, 8, f) != 8) goto fail_offsets;
         uint32_t off_count = read_be32(stco_hdr + 4);
         if (off_count != sample_count) goto fail_offsets;
@@ -309,7 +321,7 @@ int mov_reader_read_frame(MovReader *r, uint16_t *bayer_out) {
         uint32_t comp_size = r->frame_sizes[r->frames_read];
         uint64_t offset    = r->frame_offsets[r->frames_read];
 
-        fseek(r->file, (long)offset, SEEK_SET);
+        fseeko(r->file, (int64_t)offset, SEEK_SET);
         size_t rd = fread(r->comp_buf, 1, comp_size, r->file);
         if (rd != comp_size) {
             fprintf(stderr, "mov_reader: native short read at frame %d (got %zu of %u)\n",
@@ -368,18 +380,18 @@ int mov_reader_probe_wb_gains(const char *filename, float *r_gain, float *b_gain
 
     /* Walk top-level atoms to find 'moov' */
     uint8_t hdr[8];
-    long moov_off = -1;
+    int64_t moov_off = -1;
     uint32_t moov_size = 0;
 
     while (fread(hdr, 1, 8, f) == 8) {
         uint32_t sz = read_be32(hdr);
         if (sz < 8) break;
         if (memcmp(hdr + 4, "moov", 4) == 0) {
-            moov_off = ftell(f) - 8;
+            moov_off = (int64_t)ftello(f) - 8;
             moov_size = sz;
             break;
         }
-        if (fseek(f, (long)sz - 8, SEEK_CUR) != 0) break;
+        if (fseeko(f, (int64_t)sz - 8, SEEK_CUR) != 0) break;
     }
 
     if (moov_off < 0 || moov_size < 16 || moov_size > 16 * 1024 * 1024) {
@@ -389,7 +401,7 @@ int mov_reader_probe_wb_gains(const char *filename, float *r_gain, float *b_gain
 
     uint8_t *moov = malloc(moov_size);
     if (!moov) { fclose(f); return -1; }
-    fseek(f, moov_off, SEEK_SET);
+    fseeko(f, moov_off, SEEK_SET);
     if (fread(moov, 1, moov_size, f) != moov_size) {
         free(moov); fclose(f); return -1;
     }
