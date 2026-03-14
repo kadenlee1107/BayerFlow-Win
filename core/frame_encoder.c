@@ -2,7 +2,14 @@
 #include "mov_reader.h"
 #include "compat_threads.h"
 #include <unistd.h>
-#include <stdatomic.h>
+#ifdef _WIN32
+#  include <windows.h>
+   typedef volatile long atomic_int;
+#  define atomic_fetch_add(ptr, val) \
+       InterlockedExchangeAdd((volatile long *)(ptr), (long)(val))
+#else
+#  include <stdatomic.h>
+#endif
 
 /* Default frame header template (fallback if no source MOV provided) */
 static uint8_t frame_header_template[86] = {
