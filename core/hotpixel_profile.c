@@ -1,4 +1,4 @@
-#include "include/denoise_bridge.h"
+#include "denoise_bridge.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>

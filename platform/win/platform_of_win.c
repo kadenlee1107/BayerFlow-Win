@@ -85,14 +85,10 @@ int platform_of_init(int width, int height) {
 
     if (load_nvofapi() != 0) return -1;
 
-    /* Need an active CUDA context — bf_cuda_init() creates one first */
+    /* Ensure a CUDA context exists (runtime creates one via cudaFree(0)) */
+    cudaFree(0);
     CUcontext ctx = NULL;
     cuCtxGetCurrent(&ctx);
-    if (!ctx) {
-        CUdevice dev;
-        cuDeviceGet(&dev, 0);
-        cuCtxCreate(&ctx, 0, dev);
-    }
 
     NV_OF_STATUS s = g_fn.nvCreateOpticalFlowCuda(ctx, &g_hOF);
     if (s != NV_OF_SUCCESS) {

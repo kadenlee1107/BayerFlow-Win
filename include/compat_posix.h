@@ -69,6 +69,15 @@ static __inline int __builtin_clz(unsigned int x) {
 typedef long long ssize_t;
 #endif
 
+/* S_ISDIR — MSVC sys/stat.h defines S_IFDIR but not the IS* macros */
+#include <sys/stat.h>
+#ifndef S_ISDIR
+#  define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#endif
+#ifndef S_ISREG
+#  define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
+
 #endif /* _WIN32 */
 
 #endif /* BAYERFLOW_COMPAT_POSIX_H */

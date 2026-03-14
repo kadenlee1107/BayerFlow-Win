@@ -7,6 +7,7 @@
    typedef volatile long atomic_int;
 #  define atomic_fetch_add(ptr, val) \
        InterlockedExchangeAdd((volatile long *)(ptr), (long)(val))
+#  define atomic_init(ptr, val) (*(ptr) = (val))
 #else
 #  include <stdatomic.h>
 #endif
@@ -186,7 +187,12 @@ static int get_num_threads(void) {
         int n = atoi(env);
         if (n > 0) return n;
     }
+#ifdef _WIN32
+    SYSTEM_INFO si; GetSystemInfo(&si);
+    long n = (long)si.dwNumberOfProcessors;
+#else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
     if (n > 0) return (int)n;
     return 4;
 }
