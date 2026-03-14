@@ -483,7 +483,7 @@ static void launch_vst_bilateral(
     p.height      = (unsigned)height;
     p.noise_sigma = noise_sigma;
     p.h           = 1.0f;        /* analytically derived from VST theory */
-    p.z_reject    = 3.0f;
+    p.z_reject    = 5.0f;
     p.flow_sigma2 = 8.0f;
     p.sigma_g2    = 0.5f;
     p.black_level = black_level;
