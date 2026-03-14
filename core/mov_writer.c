@@ -220,7 +220,7 @@ int write_mov_file(const char *filename, const uint8_t *frame_data,
     fwrite(buf, 1, stsz_size, f);
     
     // stco
-    long stco_pos = ftell(f);
+    int64_t stco_pos = ftello(f);
     write_be32(buf, stco_size);
     memcpy(buf + 4, "stco", 4);
     write_be32(buf + 8, 0);
@@ -229,14 +229,14 @@ int write_mov_file(const char *filename, const uint8_t *frame_data,
     fwrite(buf, 1, stco_size, f);
     
     // mdat
-    long mdat_pos = ftell(f);
+    int64_t mdat_pos = ftello(f);
     write_be32(buf, 8 + frame_size);
     memcpy(buf + 4, "mdat", 4);
     fwrite(buf, 1, 8, f);
     fwrite(frame_data, 1, frame_size, f);
     
     // Fix chunk offset
-    fseek(f, stco_pos + 16, SEEK_SET);
+    fseeko(f, stco_pos + 16, SEEK_SET);
     write_be32(buf, (uint32_t)(mdat_pos + 8));
     fwrite(buf, 1, 4, f);
     
@@ -287,7 +287,7 @@ int mov_writer_open(MovWriter *w, const char *filename, int width, int height) {
     fwrite(buf, 1, 24, w->fp);
 
     /* mdat atom — use 64-bit extended size for large files */
-    w->mdat_start = ftell(w->fp);
+    w->mdat_start = ftello(w->fp);
     write_be32(buf, 1);            /* size=1 signals 64-bit extended size */
     memcpy(buf + 4, "mdat", 4);
     write_be64(buf + 8, 0);        /* placeholder for 64-bit size */
@@ -304,7 +304,7 @@ int mov_writer_add_frame(MovWriter *w, const uint8_t *frame_data, int frame_size
         return -1;
     }
 
-    w->frame_offsets[w->frame_count] = (uint64_t)ftell(w->fp);
+    w->frame_offsets[w->frame_count] = (uint64_t)ftello(w->fp);
     w->frame_sizes[w->frame_count] = (uint32_t)frame_size;
 
     size_t written = fwrite(frame_data, 1, frame_size, w->fp);
@@ -607,16 +607,16 @@ int mov_writer_copy_metadata(MovWriter *w, const char *source_mov) {
 
     /* Find moov atom in the top-level file */
     uint8_t hdr[8];
-    long moov_offset = -1;
-    long moov_size = 0;
+    int64_t moov_offset = -1;
+    int64_t moov_size = 0;
 
-    fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    fseeko(f, 0, SEEK_END);
+    int64_t file_size = ftello(f);
+    fseeko(f, 0, SEEK_SET);
 
-    long pos = 0;
+    int64_t pos = 0;
     while (pos < file_size - 8) {
-        fseek(f, pos, SEEK_SET);
+        fseeko(f, pos, SEEK_SET);
         if (fread(hdr, 1, 8, f) != 8) break;
         uint32_t atom_size = read_be32(hdr);
         if (atom_size < 8) break;
@@ -635,11 +635,11 @@ int mov_writer_copy_metadata(MovWriter *w, const char *source_mov) {
     }
 
     /* Scan children of moov for meta and udta atoms */
-    long child_pos = moov_offset + 8;
-    long moov_end = moov_offset + moov_size;
+    int64_t child_pos = moov_offset + 8;
+    int64_t moov_end = moov_offset + moov_size;
 
     while (child_pos < moov_end - 8) {
-        fseek(f, child_pos, SEEK_SET);
+        fseeko(f, child_pos, SEEK_SET);
         if (fread(hdr, 1, 8, f) != 8) break;
         uint32_t atom_size = read_be32(hdr);
         if (atom_size < 8 || child_pos + atom_size > moov_end) break;
@@ -648,7 +648,7 @@ int mov_writer_copy_metadata(MovWriter *w, const char *source_mov) {
             w->meta_atom_size = (int)atom_size;
             w->meta_atom = (uint8_t *)malloc(atom_size);
             if (w->meta_atom) {
-                fseek(f, child_pos, SEEK_SET);
+                fseeko(f, child_pos, SEEK_SET);
                 if (fread(w->meta_atom, 1, atom_size, f) != atom_size) {
                     free(w->meta_atom);
                     w->meta_atom = NULL;
@@ -661,7 +661,7 @@ int mov_writer_copy_metadata(MovWriter *w, const char *source_mov) {
             w->udta_atom_size = (int)atom_size;
             w->udta_atom = (uint8_t *)malloc(atom_size);
             if (w->udta_atom) {
-                fseek(f, child_pos, SEEK_SET);
+                fseeko(f, child_pos, SEEK_SET);
                 if (fread(w->udta_atom, 1, atom_size, f) != atom_size) {
                     free(w->udta_atom);
                     w->udta_atom = NULL;
@@ -683,7 +683,7 @@ int mov_writer_close(MovWriter *w) {
     if (!w->fp) return -1;
 
     /* Patch mdat size: total = 16 (extended header) + sum of all frame data */
-    long mdat_end = ftell(w->fp);
+    int64_t mdat_end = ftello(w->fp);
     uint64_t mdat_size = (uint64_t)(mdat_end - w->mdat_start);
 
     /* Write moov at end of file */
@@ -691,7 +691,7 @@ int mov_writer_close(MovWriter *w) {
 
     /* Seek back and patch 64-bit extended mdat size (at offset +8 from mdat_start) */
     uint8_t buf[8];
-    fseek(w->fp, w->mdat_start + 8, SEEK_SET);
+    fseeko(w->fp, w->mdat_start + 8, SEEK_SET);
     write_be64(buf, mdat_size);
     fwrite(buf, 1, 8, w->fp);
 

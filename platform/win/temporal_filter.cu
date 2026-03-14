@@ -482,7 +482,7 @@ static void launch_vst_bilateral(
     p.width       = (unsigned)width;
     p.height      = (unsigned)height;
     p.noise_sigma = noise_sigma;
-    p.h           = 2.0f;        /* wider bandwidth for noisy Bayer */
+    p.h           = 2.0f;        /* best balance */
     p.z_reject    = 3.0f;
     p.flow_sigma2 = 8.0f;
     p.sigma_g2    = 0.5f;
@@ -506,6 +506,21 @@ static void launch_vst_bilateral(
                 else
                     cudaMemcpyAsync(g_frame_ring[s], g_frame_cpu[s], fb, cudaMemcpyHostToDevice, g_stream);
             }
+        }
+    }
+
+    /* Diagnostic: count use_denoised */
+    {
+        static int diag_count = 0;
+        if (diag_count < 15) {
+            int n_denoised = 0, n_raw = 0;
+            for (int f = 0; f < num_frames; f++) {
+                if (f == center_idx) continue;
+                if (use_denoised[f]) n_denoised++; else n_raw++;
+            }
+            fprintf(stderr, "TF_DIAG: center=%d, %d denoised + %d raw, max_nb=%d\n",
+                    center_idx, n_denoised, n_raw, max_neighbors);
+            diag_count++;
         }
     }
 

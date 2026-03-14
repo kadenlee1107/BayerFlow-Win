@@ -61,34 +61,57 @@ int platform_of_compute_batch(
         fclose(f);
     }
 
-    /* Write all neighbors and build command */
-    char cmd[8192];
-    int pos = snprintf(cmd, sizeof(cmd),
-        "python \"C:\\Users\\kaden\\BayerFlow-Win\\raft_flow_batch.py\" \"%s\" %d %d",
-        center_path, green_w, green_h);
-
+    /* Write all neighbor files */
     for (int n = 0; n < num_neighbors; n++) {
-        char n_path[256], fx_path[256], fy_path[256];
-        snprintf(n_path,  sizeof(n_path),  "%s\\bf_n%d.raw",  tmp, n);
-        snprintf(fx_path, sizeof(fx_path), "%s\\bf_fx%d.raw", tmp, n);
-        snprintf(fy_path, sizeof(fy_path), "%s\\bf_fy%d.raw", tmp, n);
-
+        char n_path[256];
+        snprintf(n_path, sizeof(n_path), "%s\\bf_n%d.raw", tmp, n);
         FILE *f = fopen(n_path, "wb");
         if (!f) continue;
         fwrite(neighbors[n], sizeof(uint16_t), npix, f);
         fclose(f);
-
-        pos += snprintf(cmd + pos, sizeof(cmd) - pos,
-            " \"%s\" \"%s\" \"%s\"", n_path, fx_path, fy_path);
     }
 
-    /* Single Python call for ALL pairs */
-    FILE *p = popen(cmd, "r");
-    if (p) {
-        char line[512];
-        while (fgets(line, sizeof(line), p))
-            fprintf(stderr, "%s", line);
-        pclose(p);
+    /* Write command file for persistent RAFT server */
+    {
+        char cmd_path[256];
+        snprintf(cmd_path, sizeof(cmd_path), "%s\\bf_raft_cmd.txt", tmp);
+        FILE *cf = fopen(cmd_path, "w");
+        if (cf) {
+            fprintf(cf, "%s %d %d", center_path, green_w, green_h);
+            for (int nn = 0; nn < num_neighbors; nn++) {
+                char np2[256], fxp[256], fyp[256];
+                snprintf(np2, sizeof(np2), "%s\\bf_n%d.raw", tmp, nn);
+                snprintf(fxp, sizeof(fxp), "%s\\bf_fx%d.raw", tmp, nn);
+                snprintf(fyp, sizeof(fyp), "%s\\bf_fy%d.raw", tmp, nn);
+                fprintf(cf, " %s %s %s", np2, fxp, fyp);
+            }
+            fprintf(cf, "\n");
+            fclose(cf);
+        }
+
+        /* Trigger server */
+        char go_path[256], done_path[256];
+        snprintf(go_path, sizeof(go_path), "%s\\bf_raft_go", tmp);
+        snprintf(done_path, sizeof(done_path), "%s\\bf_raft_done", tmp);
+
+        /* Remove stale done file */
+        remove(done_path);
+
+        /* Create trigger */
+        FILE *gf = fopen(go_path, "w");
+        if (gf) { fprintf(gf, "go"); fclose(gf); }
+
+        /* Wait for done (poll) */
+        int timeout_ms = 120000; /* 2 min max */
+        int waited = 0;
+        while (waited < timeout_ms) {
+            FILE *df = fopen(done_path, "r");
+            if (df) { fclose(df); remove(done_path); break; }
+            Sleep(10); /* 10ms poll */
+            waited += 10;
+        }
+        if (waited >= timeout_ms)
+            fprintf(stderr, "RAFT server timeout!\n");
     }
 
     /* Read all flow outputs */

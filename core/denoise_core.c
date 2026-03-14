@@ -2221,7 +2221,7 @@ int denoise_file(
                 /* Motion-adaptive GPU window: far neighbors have negligible bilateral weight
                  * at high flow (exp(-flow²/8) → 0.006% at 5px). Reducing from 14 to 4
                  * neighbors cuts Metal dispatches ~71%, saving ~120ms at high flow. */
-                int max_gpu_nbrs = (smoothed_flow < 2.0f) ? 14 : (smoothed_flow < 5.0f) ? 8 : 4;
+                int max_gpu_nbrs = 14;  /* always use max neighbors — RAFT flow avg inflated by dark corners */
                 t0 = timer_now();
                 if (tf_mode == 2) {
                     if (use_shared) {
@@ -2502,7 +2502,7 @@ int denoise_file(
                  * Lowered thresholds (0.7/0.35 vs 1.0/0.5) compensate for
                  * half-res OF underestimating small motions. */
                 smoothed_flow = 0.1f * avg_flow_mag + 0.9f * smoothed_flow;
-                int low_motion = (smoothed_flow < 0.7f);
+                int low_motion = (smoothed_flow < 100.0f);  /* raised for RAFT OF (high avg from dark corners) */
 
                 build_frame_view_with_cache(window_frames, denoised_cache,
                                             denoised_cache_valid,
@@ -2519,7 +2519,7 @@ int denoise_file(
                  * in parallel, turning the 0.21+0.17=0.38s serial into max(0.21,0.17)=0.21s. */
                 int use_shared_ss = (tf_mode == 2 && cnn_ctx.use_cnn);
                 /* Motion-adaptive GPU window (same logic as warm-up path) */
-                int max_gpu_nbrs_ss = (smoothed_flow < 2.0f) ? 14 : (smoothed_flow < 5.0f) ? 8 : 4;
+                int max_gpu_nbrs_ss = 14;  /* always use max neighbors */
                 double t0 = timer_now();
                 int temporal_committed_async = 0;
                 if (tf_mode == 2) {
