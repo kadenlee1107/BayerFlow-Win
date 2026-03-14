@@ -1,5 +1,5 @@
-#include "../include/denoise.h"
-#include "../include/prores_raw_enc.h"
+#include "denoise.h"
+#include "prores_raw_enc.h"
 #include <math.h>
 #include <stdio.h>
 

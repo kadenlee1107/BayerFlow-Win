@@ -1,5 +1,5 @@
-#include "../include/dng_writer.h"
-#include "../include/dng_reader.h"
+#include "dng_writer.h"
+#include "dng_reader.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

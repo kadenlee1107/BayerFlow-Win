@@ -16,7 +16,7 @@
  *                    ALEXA 35, ALEXA 265, AMIRA
  */
 
-#include "../include/ari_reader.h"
+#include "ari_reader.h"
 
 #include <stdio.h>
 #include <stdlib.h>

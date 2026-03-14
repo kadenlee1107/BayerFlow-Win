@@ -1,5 +1,5 @@
-#include "../include/prores_raw_enc.h"
-#include "../include/mov_reader.h"
+#include "prores_raw_enc.h"
+#include "mov_reader.h"
 #include <errno.h>
 
 void write_be16(uint8_t *buf, uint16_t val) {

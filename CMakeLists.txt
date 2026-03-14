@@ -3,7 +3,7 @@ project(BayerFlowCLI C)
 
 set(CMAKE_C_STANDARD 11)
 
-# ---- Portable core sources (copies of Mac originals, edited independently) ----
+# ---- Portable core sources ----
 set(CORE_SOURCES
     core/dct.c
     core/tile_encoder.c
@@ -32,6 +32,7 @@ set(CORE_SOURCES
     core/exr_writer.c
     core/mxf_reader.c
     core/denoise.c
+    core/denoise_core.c
 )
 
 include_directories(include)
@@ -41,6 +42,7 @@ if(WIN32)
     set(PLATFORM_SOURCES
         platform/win/platform_of_win.c
         platform/win/platform_gpu_win.c
+        platform/win/platform_stubs.c
     )
     # Uncomment when CUDA is ready:
     # enable_language(CUDA)
@@ -49,20 +51,34 @@ else()
     set(PLATFORM_SOURCES
         platform/mac/platform_of_mac_stub.c
         platform/mac/platform_gpu_mac_stub.c
+        platform/mac/platform_stubs.c
     )
 endif()
 
-add_executable(bayerflow_cli ${CORE_SOURCES} ${PLATFORM_SOURCES} core/denoise.c)
+# ---- Executable ----
+add_executable(bayerflow
+    cli/main.c
+    ${CORE_SOURCES}
+    ${PLATFORM_SOURCES}
+)
 
+# ---- Platform flags ----
 if(WIN32)
-    target_compile_definitions(bayerflow_cli PRIVATE BAYERFLOW_WINDOWS=1)
+    target_compile_definitions(bayerflow PRIVATE BAYERFLOW_WINDOWS=1)
+    # pthreads-win32 via vcpkg: vcpkg install pthreads
+    find_package(pthreads QUIET)
+    if(pthreads_FOUND)
+        target_link_libraries(bayerflow PThreads4W::PThreads4W)
+    endif()
+    target_link_libraries(bayerflow ws2_32)
 else()
-    target_compile_definitions(bayerflow_cli PRIVATE BAYERFLOW_MAC=1)
-    target_link_libraries(bayerflow_cli "-framework Foundation")
+    target_compile_definitions(bayerflow PRIVATE BAYERFLOW_MAC=1)
+    target_link_libraries(bayerflow pthread m)
 endif()
 
+# ---- Optimization ----
 if(MSVC)
-    target_compile_options(bayerflow_cli PRIVATE /O2 /arch:AVX2)
+    target_compile_options(bayerflow PRIVATE /O2 /arch:AVX2 /W3)
 else()
-    target_compile_options(bayerflow_cli PRIVATE -O3 -march=native)
+    target_compile_options(bayerflow PRIVATE -O3 -march=native -Wall -Wno-unused-function)
 endif()

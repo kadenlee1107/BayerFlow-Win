@@ -5,7 +5,7 @@
  * Exact inverse of braw_dec.c — matched DCT, VLC tables, quant.
  */
 
-#include "../include/braw_enc.h"
+#include "braw_enc.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

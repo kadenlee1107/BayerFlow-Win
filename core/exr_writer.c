@@ -15,7 +15,7 @@
  * Channel order in EXR is always alphabetical: B, G, R.
  */
 
-#include "../include/exr_writer.h"
+#include "exr_writer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

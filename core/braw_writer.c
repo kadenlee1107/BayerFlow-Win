@@ -5,7 +5,7 @@
  * Based on mov_writer.c but with BRAW-specific stsd codec tag and timing.
  */
 
-#include "../include/braw_writer.h"
+#include "braw_writer.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>

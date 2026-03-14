@@ -12,7 +12,7 @@
  *   - SMPTE ST 2073 (CineForm bitstream specification)
  */
 
-#include "../include/cineform_enc.h"
+#include "cineform_enc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

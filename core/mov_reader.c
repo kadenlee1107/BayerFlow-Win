@@ -1,4 +1,4 @@
-#include "../include/mov_reader.h"
+#include "mov_reader.h"
 #include "prores_raw_dec.h"
 #include <stdlib.h>
 #include <string.h>

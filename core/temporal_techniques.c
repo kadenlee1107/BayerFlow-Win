@@ -7,7 +7,7 @@
  * Calibrated for S5II: black_level=6032, shot_gain=180, read_noise_frac=0.55
  */
 
-#include "../include/temporal_techniques.h"
+#include "temporal_techniques.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>

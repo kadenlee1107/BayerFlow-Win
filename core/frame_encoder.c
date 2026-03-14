@@ -1,6 +1,6 @@
-#include "../include/prores_raw_enc.h"
-#include "../include/mov_reader.h"
-#include <pthread.h>
+#include "prores_raw_enc.h"
+#include "mov_reader.h"
+#include "compat_threads.h"
 #include <unistd.h>
 #include <stdatomic.h>
 

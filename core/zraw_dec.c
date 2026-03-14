@@ -17,7 +17,7 @@
  *   - Clean-room reimplementation in pure C.
  */
 
-#include "../include/zraw_dec.h"
+#include "zraw_dec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

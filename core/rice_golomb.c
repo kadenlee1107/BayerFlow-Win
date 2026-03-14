@@ -1,4 +1,4 @@
-#include "../include/prores_raw_enc.h"
+#include "prores_raw_enc.h"
 
 // Codebooks from FFmpeg ProRes RAW decoder
 // Extracted from actual decoder implementation

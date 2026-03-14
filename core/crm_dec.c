@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include "../include/crm_dec.h"
+#include "crm_dec.h"
 
 /* ========================================================================
  * Utility helpers

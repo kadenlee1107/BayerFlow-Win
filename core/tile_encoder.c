@@ -1,5 +1,5 @@
-#include "../include/prores_raw_enc.h"
-#include "../include/denoise.h"
+#include "prores_raw_enc.h"
+#include "denoise.h"
 
 #define TODCCODEBOOK(x) ((x + 1) >> 1)
 #define MIN(a,b) ((a) < (b) ? (a) : (b))

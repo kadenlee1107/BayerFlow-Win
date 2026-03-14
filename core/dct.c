@@ -1,4 +1,4 @@
-#include "../include/prores_raw_enc.h"
+#include "prores_raw_enc.h"
 #include <math.h>
 
 #ifdef __ARM_NEON__

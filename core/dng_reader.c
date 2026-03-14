@@ -1,4 +1,4 @@
-#include "../include/dng_reader.h"
+#include "dng_reader.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

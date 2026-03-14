@@ -1,4 +1,4 @@
-#include "../include/temporal_filter.h"
+#include "temporal_filter.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>

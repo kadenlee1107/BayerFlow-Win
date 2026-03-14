@@ -20,7 +20,7 @@
  *   - FFmpeg libavformat/mxfdec.c
  */
 
-#include "../include/mxf_reader.h"
+#include "mxf_reader.h"
 
 #include <stdio.h>
 #include <stdlib.h>

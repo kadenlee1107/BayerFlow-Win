@@ -14,7 +14,7 @@
  *   - SMPTE ST 2073 (CineForm bitstream specification)
  */
 
-#include "../include/cineform_dec.h"
+#include "cineform_dec.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

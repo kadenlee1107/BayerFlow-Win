@@ -1,4 +1,4 @@
-#include "../include/spatial_denoise.h"
+#include "spatial_denoise.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>

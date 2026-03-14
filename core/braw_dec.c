@@ -5,7 +5,7 @@
  * Based on reverse-engineering by Paul B Mahol (FFmpeg braw.c, 2019).
  */
 
-#include "../include/braw_dec.h"
+#include "braw_dec.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

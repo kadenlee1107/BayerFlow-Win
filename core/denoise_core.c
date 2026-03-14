@@ -36,12 +36,10 @@ static double timer_now_impl(void) {
     return (double)cnt.QuadPart / (double)freq.QuadPart;
 }
 #  define timer_now timer_now_impl
-/* pthreads-win32: link against pthreadVC2.lib */
-#  include <pthread.h>
 #else
 #  include <sys/time.h>
-#  include <pthread.h>
 #endif
+#include "compat_threads.h"
 
 #ifdef __ARM_NEON__
 #include <arm_neon.h>
