@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(BayerFlowCLI C)
+project(BayerFlowCLI C CXX CUDA)
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 17)
+
+# ---- NVOF SDK path (download from https://developer.nvidia.com/optical-flow-sdk) ----
+set(NVOF_SDK_ROOT "C:/nvof_sdk" CACHE PATH "NVIDIA Optical Flow SDK root")
 
 # ---- Portable core sources ----
 set(CORE_SOURCES
@@ -32,21 +37,27 @@ set(CORE_SOURCES
     core/exr_writer.c
     core/mxf_reader.c
     core/denoise.c
-    core/denoise_core.c
 )
 
 include_directories(include)
 
 # ---- Platform layer ----
 if(WIN32)
+    # CUDA + NVOF
+    find_package(CUDAToolkit REQUIRED)
+
     set(PLATFORM_SOURCES
         platform/win/platform_of_win.c
         platform/win/platform_gpu_win.c
         platform/win/platform_stubs.c
+        platform/win/temporal_filter.cu
     )
-    # Uncomment when CUDA is ready:
-    # enable_language(CUDA)
-    # list(APPEND PLATFORM_SOURCES platform/win/temporal_filter.cu)
+
+    include_directories(
+        ${CUDAToolkit_INCLUDE_DIRS}
+        ${NVOF_SDK_ROOT}/Interface
+    )
+
 else()
     set(PLATFORM_SOURCES
         platform/mac/platform_of_mac_stub.c
@@ -62,15 +73,39 @@ add_executable(bayerflow
     ${PLATFORM_SOURCES}
 )
 
-# ---- Platform flags ----
+# ---- CUDA properties ----
+if(WIN32)
+    set_target_properties(bayerflow PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_ARCHITECTURES "75;80;86;89;90"  # Turing, Ampere, Ada, Hopper
+        # RTX 5000 (Blackwell) = sm_100 — add when CUDA 13 ships stable
+    )
+endif()
+
+# ---- Link libraries ----
 if(WIN32)
     target_compile_definitions(bayerflow PRIVATE BAYERFLOW_WINDOWS=1)
-    # pthreads-win32 via vcpkg: vcpkg install pthreads
+
+    # CUDA runtime
+    target_link_libraries(bayerflow CUDA::cudart CUDA::cuda_driver)
+
+    # NVOF SDK library
+    if(EXISTS "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow_1.0.lib")
+        target_link_libraries(bayerflow "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow_1.0.lib")
+    elseif(EXISTS "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow.lib")
+        target_link_libraries(bayerflow "${NVOF_SDK_ROOT}/Lib/x64/NvOpticalFlow.lib")
+    else()
+        message(WARNING "NVOF lib not found at ${NVOF_SDK_ROOT}/Lib/x64/ — OF will be disabled")
+    endif()
+
+    # pthreads via vcpkg
     find_package(pthreads QUIET)
     if(pthreads_FOUND)
         target_link_libraries(bayerflow PThreads4W::PThreads4W)
     endif()
+
     target_link_libraries(bayerflow ws2_32)
+
 else()
     target_compile_definitions(bayerflow PRIVATE BAYERFLOW_MAC=1)
     target_link_libraries(bayerflow pthread m)
@@ -78,7 +113,13 @@ endif()
 
 # ---- Optimization ----
 if(MSVC)
-    target_compile_options(bayerflow PRIVATE /O2 /arch:AVX2 /W3)
+    target_compile_options(bayerflow PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:/O2 /arch:AVX2 /W3>
+        $<$<COMPILE_LANGUAGE:CXX>:/O2 /arch:AVX2>
+    )
 else()
-    target_compile_options(bayerflow PRIVATE -O3 -march=native -Wall -Wno-unused-function)
+    target_compile_options(bayerflow PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-O3 -march=native -Wall -Wno-unused-function>
+        $<$<COMPILE_LANGUAGE:CXX>:-O3 -march=native>
+    )
 endif()

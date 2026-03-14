@@ -35,12 +35,20 @@ C:\vcpkg\vcpkg integrate install
 C:\vcpkg\vcpkg install pthreads:x64-windows
 ```
 
+### Install NVIDIA Optical Flow SDK
+
+1. Download from https://developer.nvidia.com/optical-flow-sdk
+2. Extract to `C:\nvof_sdk\` (must contain `Interface\` and `Lib\` subfolders)
+
 ### Build
 
 ```bat
 git clone https://github.com/kadenlee1107/BayerFlow-Win.git
 cd BayerFlow-Win
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+cmake -B build -S . ^
+  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+  -DNVOF_SDK_ROOT=C:/nvof_sdk ^
+  -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
@@ -81,19 +89,18 @@ bayerflow.exe --input clip.mov --output clip_denoised.mov ^
 
 ## Performance
 
-Current status: **CPU only** (no GPU acceleration yet).
+| Component | Mac (M-series) | Windows RTX 5070 |
+|-----------|---------------|------------------|
+| Optical flow | 240ms (ANE, 4 neighbors) | ~8-20ms (NVOF, 4 neighbors) |
+| Temporal filter | 70ms (Metal) | ~20ms (CUDA, 3× bandwidth) |
+| Wall clock | ~280ms (3.6 fps) | ~50ms (~20 fps estimated) |
 
-| Component | Current | With CUDA (RTX 5070) |
-|-----------|---------|----------------------|
-| Optical flow | zero (stub) | ~2-5ms/frame (NVOF) |
-| Temporal filter | CPU ~14s/frame | ~20ms/frame (CUDA) |
-| Wall clock | ~15s/frame | ~0.05s/frame (~20 fps) |
-
-CUDA and NVOF support is in progress. See `platform/win/`.
+CUDA temporal filter and NVOF optical flow are fully implemented.
+CPU fallback activates automatically if no CUDA GPU is detected.
 
 ## Roadmap
 
-- [ ] NVIDIA Optical Flow SDK (`platform/win/platform_of_win.c`)
-- [ ] CUDA temporal filter kernel (`platform/win/temporal_filter.cu`)
+- [x] CUDA temporal filter kernel (`platform/win/temporal_filter.cu`)
+- [x] NVIDIA Optical Flow SDK (`platform/win/platform_of_win.c`)
 - [ ] ProRes 4444 output via Media Foundation (for R3D output)
 - [ ] GUI (Qt)
