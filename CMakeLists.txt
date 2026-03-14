@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(BayerFlowCLI C CXX CUDA)
 
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 17)   # MSVC needs C17 for <stdatomic.h> support
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
 
@@ -104,10 +104,12 @@ else()
     target_link_libraries(bayerflow pthread m)
 endif()
 
-# ---- Optimization ----
+# ---- Optimization + MSVC compat ----
 if(MSVC)
     target_compile_options(bayerflow PRIVATE
-        $<$<COMPILE_LANGUAGE:C>:/O2 /arch:AVX2 /W3>
+        # Force-include compat_posix.h: provides M_PI, popen, fseeko, strcasecmp,
+        # mkdir, __builtin_clz, and suppresses CRT deprecation warnings.
+        $<$<COMPILE_LANGUAGE:C>:/FI "compat_posix.h" /O2 /arch:AVX2 /W3>
         $<$<COMPILE_LANGUAGE:CXX>:/O2 /arch:AVX2>
     )
 else()

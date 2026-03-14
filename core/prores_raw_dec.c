@@ -11,7 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#ifdef __APPLE__
 #include <dispatch/dispatch.h>
+#endif
 
 /* ---- Constants (must match encoder exactly) ---- */
 
@@ -614,26 +616,38 @@ int prores_raw_decode_frame(const uint8_t *frame_data, int frame_size,
         offset += tile_sizes[t];
     }
 
-    /* Decode tiles in parallel using GCD */
-    __block int decode_error = 0;
-    const uint8_t *qmat_ptr = frame_qmat;  /* block-capturable pointer */
+    /* Decode tiles in parallel (GCD on Apple, sequential on Windows) */
+    int decode_error = 0;
+#ifdef __APPLE__
+    __block int decode_error_blk = 0;
+    const uint8_t *qmat_ptr = frame_qmat;
     dispatch_apply((size_t)nb_tiles, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
                    ^(size_t t) {
-        if (decode_error) return;  /* early out if another tile failed */
-
+        if (decode_error_blk) return;
         int ty = (int)t / nb_tw;
         int tx = (int)t % nb_tw;
         int tile_x = tx * TILE_WIDTH;
         int tile_y = ty * TILE_HEIGHT;
-
         if (decode_tile(frame_data + tile_offsets[t], tile_sizes[t],
-                        bayer_out, width,
-                        tile_x, tile_y,
-                        width, height,
-                        qmat_ptr) != 0) {
-            decode_error = 1;
+                        bayer_out, width, tile_x, tile_y,
+                        width, height, qmat_ptr) != 0) {
+            decode_error_blk = 1;
         }
     });
+    decode_error = decode_error_blk;
+#else
+    for (int t = 0; t < nb_tiles && !decode_error; t++) {
+        int ty = t / nb_tw;
+        int tx = t % nb_tw;
+        int tile_x = tx * TILE_WIDTH;
+        int tile_y = ty * TILE_HEIGHT;
+        if (decode_tile(frame_data + tile_offsets[t], tile_sizes[t],
+                        bayer_out, width, tile_x, tile_y,
+                        width, height, frame_qmat) != 0) {
+            decode_error = 1;
+        }
+    }
+#endif
 
     free(tile_offsets);
     free(tile_sizes);
