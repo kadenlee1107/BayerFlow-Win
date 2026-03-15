@@ -31,6 +31,7 @@ set(CORE_SOURCES
     core/zraw_dec.c
     core/frame_reader.c
     core/hotpixel_profile.c
+    core/noise_profile.c
     core/motion_est.c
     core/dng_reader.c
     core/dng_writer.c

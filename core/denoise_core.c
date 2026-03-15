@@ -1737,6 +1737,31 @@ int denoise_file(
     float vst_sg = cfg->shot_gain   > 0 ? cfg->shot_gain   : 180.0f;
     float vst_rn = cfg->read_noise  > 0 ? cfg->read_noise  : 616.0f;
 
+    /* Auto-profile noise from center patch of first frame */
+    if (cfg->black_level <= 0 && cfg->shot_gain <= 0 && cfg->read_noise <= 0) {
+        CNoiseProfile np;
+        int pw = width / 3, ph = height / 3;
+        int px = (width - pw) / 2, py = (height - ph) / 2;
+        /* Read first frame for profiling */
+        FrameReader prof_reader;
+        if (frame_reader_open(&prof_reader, input_path) == 0) {
+            uint16_t *prof_buf = (uint16_t *)malloc((size_t)width * height * sizeof(uint16_t));
+            if (prof_buf && frame_reader_read_frame(&prof_reader, prof_buf) == 0) {
+                noise_profile_from_patch(prof_buf, width, height, px, py, pw, ph, &np);
+                if (np.valid) {
+                    fprintf(stderr, "NOISE_PROFILE: bl=%.1f sg=%.3f rn=%.1f sigma=%.1f (patch %dx%d at %d,%d)\n",
+                            np.black_level, np.shot_gain, np.read_noise, np.sigma, pw, ph, px, py);
+                    vst_bl = np.black_level;
+                    vst_sg = np.shot_gain;
+                    vst_rn = np.read_noise;
+                    fprintf(stderr, "NOISE_PROFILE: using profiled values instead of defaults\n");
+                }
+            }
+            free(prof_buf);
+            frame_reader_close(&prof_reader);
+        }
+    }
+
     /* When CNN post-filter is active, disable spatial denoise entirely.
      * Analysis shows temporal filter already reduces shadow noise below the texture
      * floor — any additional spatial smoothing destroys real detail. The CNN handles
@@ -1942,6 +1967,8 @@ int denoise_file(
     if (tcfg.noise_sigma == 0)
         tcfg.noise_sigma = temporal_filter_estimate_noise(window_frames[0], width, height);
 
+    fprintf(stderr, "CFG_DBG: cfg->bl=%.1f cfg->sg=%.3f cfg->rn=%.1f\n", cfg->black_level, cfg->shot_gain, cfg->read_noise);
+    fprintf(stderr, "NOISE_DBG: vst bl=%.1f sg=%.3f rn=%.1f\n", vst_bl, vst_sg, vst_rn);
     fprintf(stderr, "DIAG: noise_sigma=%.1f, h=sigma*strength=%.1f, strength=%.2f, window=%d, spatial=%.2f, cnn=%d, mps=%d, coreml=%d\n",
             tcfg.noise_sigma, tcfg.noise_sigma * tcfg.strength, tcfg.strength,
             W, cfg->spatial_strength, cfg->use_cnn_postfilter,

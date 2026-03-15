@@ -82,9 +82,9 @@ int main(int argc, char **argv) {
     cfg.temporal_filter_mode = 2;     /* VST+Bilateral by default */
     cfg.auto_dark_frame     = 1;
     cfg.output_format       = 0;      /* auto */
-    cfg.black_level         = 6032.0f;
-    cfg.shot_gain           = 180.0f;
-    cfg.read_noise          = 616.0f;
+    cfg.black_level         = 0;  /* 0 = auto-profile */
+    cfg.shot_gain           = 0;
+    cfg.read_noise          = 0;
 
     int frames  = 0;   /* 0 = all */
 
