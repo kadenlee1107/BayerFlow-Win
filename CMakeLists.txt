@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(BayerFlowCLI C CXX CUDA)
+project(BayerFlow C CXX CUDA)
 
 set(CMAKE_C_STANDARD 17)   # MSVC needs C17 for <stdatomic.h> support
 set(CMAKE_CXX_STANDARD 17)
@@ -54,7 +54,7 @@ if(WIN32)
         platform/win/platform_gpu_win.c
         platform/win/platform_stubs.c
         platform/win/temporal_filter.cu
-    platform/win/dncnn_cuda.cu
+        platform/win/dncnn_cuda.cu
     )
 
     include_directories(
@@ -70,56 +70,68 @@ else()
     )
 endif()
 
-# ---- Executable ----
-add_executable(bayerflow
-    cli/main.c
+# ---- Static library (shared by CLI and GUI) ----
+add_library(bayerflow_core STATIC
     ${CORE_SOURCES}
     ${PLATFORM_SOURCES}
 )
 
-# ---- CUDA properties ----
 if(WIN32)
-    set_target_properties(bayerflow PROPERTIES
+    set_target_properties(bayerflow_core PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
-        CUDA_ARCHITECTURES "75;80;86;89;90;100"  # Turing, Ampere, Ada, Hopper, Blackwell (RTX 5000)
+        CUDA_ARCHITECTURES "75;80;86;89;90;100"
     )
-endif()
+    target_compile_definitions(bayerflow_core PUBLIC BAYERFLOW_WINDOWS=1)
+    target_link_libraries(bayerflow_core CUDA::cudart CUDA::cuda_driver)
 
-# ---- Link libraries ----
-if(WIN32)
-    target_compile_definitions(bayerflow PRIVATE BAYERFLOW_WINDOWS=1)
-
-    # CUDA runtime
-    target_link_libraries(bayerflow CUDA::cudart CUDA::cuda_driver)
-
-    # NVOF SDK 5.x: header-only — runtime loads nvofapi64.dll from NVIDIA driver
-    # No .lib to link; LoadLibrary("nvofapi64.dll") is called at startup.
-
-    # pthreads via vcpkg
     find_package(pthreads QUIET)
     if(pthreads_FOUND)
-        target_link_libraries(bayerflow PThreads4W::PThreads4W)
+        target_link_libraries(bayerflow_core PThreads4W::PThreads4W)
     endif()
 
-    target_link_libraries(bayerflow ws2_32)
-    target_link_libraries(bayerflow "C:/Users/kaden/onnxruntime-gpu/onnxruntime-win-x64-gpu-1.24.3/lib/onnxruntime.lib")
-
+    target_link_libraries(bayerflow_core ws2_32)
+    target_link_libraries(bayerflow_core "C:/Users/kaden/onnxruntime-gpu/onnxruntime-win-x64-gpu-1.24.3/lib/onnxruntime.lib")
 else()
-    target_compile_definitions(bayerflow PRIVATE BAYERFLOW_MAC=1)
-    target_link_libraries(bayerflow pthread m)
+    target_compile_definitions(bayerflow_core PUBLIC BAYERFLOW_MAC=1)
+    target_link_libraries(bayerflow_core pthread m)
 endif()
 
-# ---- Optimization + MSVC compat ----
 if(MSVC)
-    target_compile_options(bayerflow PRIVATE
-        # Force-include compat_posix.h: provides M_PI, popen, fseeko, strcasecmp,
-        # mkdir, __builtin_clz, and suppresses CRT deprecation warnings.
+    target_compile_options(bayerflow_core PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/FI "compat_posix.h" /O2 /arch:AVX2 /W3>
-        $<$<COMPILE_LANGUAGE:CXX>:/O2 /arch:AVX2>
+        $<$<COMPILE_LANGUAGE:CXX>:/FI "compat_posix.h" /O2 /arch:AVX2>
     )
 else()
-    target_compile_options(bayerflow PRIVATE
+    target_compile_options(bayerflow_core PRIVATE
         $<$<COMPILE_LANGUAGE:C>:-O3 -march=native -Wall -Wno-unused-function>
         $<$<COMPILE_LANGUAGE:CXX>:-O3 -march=native>
     )
+endif()
+
+# ---- CLI executable ----
+add_executable(bayerflow cli/main.c)
+target_link_libraries(bayerflow bayerflow_core)
+
+# ---- Qt GUI (optional) ----
+find_package(Qt6 COMPONENTS Widgets QUIET)
+if(Qt6_FOUND)
+    message(STATUS "Qt6 found — building bayerflow_gui")
+    set(CMAKE_AUTOMOC ON)
+
+    add_executable(bayerflow_gui WIN32
+        gui/main.cpp
+        gui/MainWindow.cpp
+        gui/PreviewWidget.cpp
+        gui/DenoiseWorker.cpp
+        gui/BayerConverter.cpp
+    )
+    target_link_libraries(bayerflow_gui bayerflow_core Qt6::Widgets)
+
+    if(MSVC)
+        target_compile_options(bayerflow_gui PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:/FI "compat_posix.h" /O2 /arch:AVX2>
+        )
+    endif()
+else()
+    message(STATUS "Qt6 not found — skipping GUI (CLI-only build)")
 endif()
