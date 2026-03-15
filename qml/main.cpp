@@ -10,7 +10,7 @@ int main(int argc, char *argv[])
     /* Use Universal dark theme for built-in controls (SpinBox, ComboBox) */
     qputenv("QT_QUICK_CONTROLS_STYLE", "Universal");
     qputenv("QT_QUICK_CONTROLS_UNIVERSAL_THEME", "Dark");
-    qputenv("QT_QUICK_CONTROLS_UNIVERSAL_ACCENT", "#569cd6");
+    qputenv("QT_QUICK_CONTROLS_UNIVERSAL_ACCENT", "#e87a20");
     qputenv("QT_QUICK_CONTROLS_UNIVERSAL_FOREGROUND", "#d4d4d4");
     qputenv("QT_QUICK_CONTROLS_UNIVERSAL_BACKGROUND", "#1e1e1e");
 
