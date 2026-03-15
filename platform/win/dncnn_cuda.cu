@@ -175,7 +175,7 @@ extern "C" int dncnn_cuda_denoise_bayer(uint16_t *bayer, int width, int height,
                                           float blend, float noise_sigma) {
     if (!g_layers) return -1;
 
-    /* Serialize CUDA access — wait for temporal filter kernels to finish
+    /* Serialize CUDA access ï¿½ wait for temporal filter kernels to finish
      * before DnCNN launches its own kernels (avoids thread deadlock) */
     cudaDeviceSynchronize();
 
@@ -209,11 +209,11 @@ extern "C" int dncnn_cuda_denoise_bayer(uint16_t *bayer, int width, int height,
             for (int y = 0; y < sch; y++) {
                 for (int x = 0; x < scw; x++) {
                     int i = y * scw + x;
-                    /* Direct blend: output = input * (1-blend) + cnn_output * blend */
-                    float cnn_out = h_out[i];
-                    if (cnn_out < 0.0f) cnn_out = 0.0f;
-                    if (cnn_out > 1.0f) cnn_out = 1.0f;
-                    float denoised = h_sc[i] * (1.0f - blend) + cnn_out * blend;
+                    /* Residual subtraction: output = input - blend * noise_estimate */
+                    float noise_est = h_out[i];
+                    float denoised = h_sc[i] - blend * noise_est;
+                    if (denoised < 0.0f) denoised = 0.0f;
+                    if (denoised > 1.0f) denoised = 1.0f;
                     bayer[(y * 2 + dy) * width + (x * 2 + dx)] = (uint16_t)(denoised * 65535.0f + 0.5f);
                 }
             }

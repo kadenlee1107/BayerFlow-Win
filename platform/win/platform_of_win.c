@@ -16,24 +16,30 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "raft_onnx.h"
 
 #ifdef BAYERFLOW_WINDOWS
 
-/* ---- RAFT optical flow via Python server ----
- * Runs in a separate process with its own CUDA context.
- * Avoids CUDA device lock conflict with DnCNN CUDA post-filter. */
+/* ---- RAFT optical flow: ONNX C API (primary) or Python server (fallback) ---- */
 
 static int g_of_init_w = 0, g_of_init_h = 0;
+static int g_use_onnx = 0;
 
 int platform_of_init(int width, int height) {
     g_of_init_w = width >> 1;
     g_of_init_h = height >> 1;
+    /* Use Python RAFT server for OF (ONNX Runtime CUDA has memory leak).
+     * DnCNN CUDA post-filter still runs inline — no conflict since
+     * RAFT runs in separate Python process with its own CUDA context. */
+    g_use_onnx = 0;
     fprintf(stderr, "OF: RAFT (Python server) %dx%d\n", g_of_init_w, g_of_init_h);
     return 0;
 }
 
 void platform_of_destroy(void) {
+    if (g_use_onnx) raft_onnx_destroy();
     g_of_init_w = g_of_init_h = 0;
+    g_use_onnx = 0;
 }
 
 int platform_of_compute_batch(
@@ -47,6 +53,20 @@ int platform_of_compute_batch(
         platform_of_init(green_w * 2, green_h * 2);
 
     size_t npix = (size_t)green_w * green_h;
+
+    /* ONNX C API path — no Python, no file I/O */
+    if (g_use_onnx) {
+        for (int n = 0; n < num_neighbors; n++) {
+            if (raft_onnx_compute(center, neighbors[n], green_w, green_h,
+                                  fx_out[n], fy_out[n]) != 0) {
+                memset(fx_out[n], 0, npix * sizeof(float));
+                memset(fy_out[n], 0, npix * sizeof(float));
+            }
+        }
+        return 0;
+    }
+
+    /* Python server fallback */
     const char *tmp = getenv("TEMP");
     if (!tmp) tmp = ".";
     char center_path[256];
