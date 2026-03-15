@@ -129,7 +129,6 @@ extern "C" void dncnn_cuda_destroy(void) {
 extern "C" int dncnn_cuda_denoise(float *d_input, float *d_output, int H, int W) {
     if (!g_layers || g_num_layers == 0) return -1;
 
-    /* Ensure ping-pong buffers are allocated */
     int max_ch = g_hidden_channels;
     size_t need = (size_t)max_ch * H * W * sizeof(float);
     if (need > (size_t)g_buf_size) {
@@ -142,12 +141,10 @@ extern "C" int dncnn_cuda_denoise(float *d_input, float *d_output, int H, int W)
     dim3 blk(16, 16);
     dim3 grd;
 
-    /* Layer 0: 1ch → hidden_ch, ReLU */
     grd = dim3((W + 15) / 16, (H + 15) / 16, g_layers[0].outCh);
     conv3x3_relu_kernel<<<grd, blk>>>(d_input, g_layers[0].d_weight, g_layers[0].d_bias,
                                        g_buf[0], H, W, g_layers[0].inCh, g_layers[0].outCh, 1);
 
-    /* Middle layers: hidden_ch → hidden_ch, ReLU */
     for (int i = 1; i < g_num_layers - 1; i++) {
         int src = (i - 1) % 2;
         int dst = i % 2;
@@ -156,7 +153,6 @@ extern "C" int dncnn_cuda_denoise(float *d_input, float *d_output, int H, int W)
                                            g_buf[dst], H, W, g_layers[i].inCh, g_layers[i].outCh, 1);
     }
 
-    /* Last layer: hidden_ch → 1ch, NO ReLU (residual output) */
     int last = g_num_layers - 1;
     int src = (last - 1) % 2;
     grd = dim3((W + 15) / 16, (H + 15) / 16, g_layers[last].outCh);
