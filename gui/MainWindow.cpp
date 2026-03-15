@@ -70,9 +70,13 @@ void MainWindow::buildUI()
     auto *noiseGroup = new QGroupBox("Noise Profile", central);
     auto *noiseLayout = new QFormLayout(noiseGroup);
     m_noiseBlackLevel = new QLabel("--", noiseGroup);
+    m_noiseBlackLevel->setObjectName("noiseValue");
     m_noiseShotGain = new QLabel("--", noiseGroup);
+    m_noiseShotGain->setObjectName("noiseValue");
     m_noiseReadNoise = new QLabel("--", noiseGroup);
+    m_noiseReadNoise->setObjectName("noiseValue");
     m_noiseSigma = new QLabel("--", noiseGroup);
+    m_noiseSigma->setObjectName("noiseValue");
     noiseLayout->addRow("Black Level:", m_noiseBlackLevel);
     noiseLayout->addRow("Shot Gain:", m_noiseShotGain);
     noiseLayout->addRow("Read Noise:", m_noiseReadNoise);
@@ -109,9 +113,10 @@ void MainWindow::buildUI()
 
     /* ---- Start / Cancel / Progress ---- */
     auto *actionLayout = new QHBoxLayout;
-    m_startBtn = new QPushButton("Start", central);
-    m_startBtn->setStyleSheet("font-weight: bold; padding: 8px 24px;");
+    m_startBtn = new QPushButton("Start Denoise", central);
+    m_startBtn->setObjectName("startBtn");
     m_cancelBtn = new QPushButton("Cancel", central);
+    m_cancelBtn->setObjectName("cancelBtn");
     m_cancelBtn->setEnabled(false);
     m_progressBar = new QProgressBar(central);
     m_progressBar->setRange(0, 100);
@@ -121,6 +126,7 @@ void MainWindow::buildUI()
     mainLayout->addLayout(actionLayout);
 
     m_statusLabel = new QLabel("Ready", central);
+    m_statusLabel->setObjectName("statusLabel");
     mainLayout->addWidget(m_statusLabel);
 
     connect(m_startBtn, &QPushButton::clicked, this, &MainWindow::onStartDenoise);

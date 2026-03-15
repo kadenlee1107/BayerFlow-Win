@@ -6,7 +6,7 @@ PreviewWidget::PreviewWidget(QWidget *parent)
 {
     setMinimumSize(320, 200);
     setAlignment(Qt::AlignCenter);
-    setStyleSheet("background: #1a1a1a;");
+    setStyleSheet("background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px;");
     setText("Load a frame to preview");
 }
 
