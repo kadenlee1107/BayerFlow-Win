@@ -37,9 +37,11 @@ int raft_onnx_init(const char *model_path, int width, int height) {
     if (ort_check(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "bayerflow", &g_env), "CreateEnv")) return -1;
     if (ort_check(g_ort->CreateSessionOptions(&g_opts), "CreateSessionOptions")) return -1;
 
-    /* Try TensorRT EP first (FP16, engine cache), fall back to CUDA EP */
+    /* CUDA EP preferred for RAFT (TRT is slower due to unsupported ops fallback).
+     * TRT code kept but disabled — enable for models with full TRT support. */
     int have_gpu = 0;
 
+#if 0  /* TRT disabled — slower than CUDA EP for RAFT (grid_sample/correlation fallback) */
     /* TensorRT EP — FP16 with engine caching */
     {
         const char *trt_keys[] = {
@@ -64,8 +66,9 @@ int raft_onnx_init(const char *model_path, int width, int height) {
             g_ort->ReleaseTensorRTProviderOptions(trt_opts);
         }
     }
+#endif  /* TRT disabled */
 
-    /* CUDA EP as fallback (with arena fixes) */
+    /* CUDA EP — best for RAFT (with arena fixes) */
     if (!have_gpu) {
         OrtCUDAProviderOptionsV2 *cuda_opts = NULL;
         if (ort_check(g_ort->CreateCUDAProviderOptions(&cuda_opts), "CreateCUDAOptions")) {
