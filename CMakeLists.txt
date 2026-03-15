@@ -32,6 +32,7 @@ set(CORE_SOURCES
     core/frame_reader.c
     core/hotpixel_profile.c
     core/noise_profile.c
+    platform/win/raft_onnx.c
     core/motion_est.c
     core/dng_reader.c
     core/dng_writer.c
@@ -41,6 +42,7 @@ set(CORE_SOURCES
 )
 
 include_directories(include)
+include_directories("C:/Users/kaden/onnxruntime-gpu/onnxruntime-win-x64-gpu-1.24.3/include")
 
 # ---- Platform layer ----
 if(WIN32)
@@ -52,6 +54,7 @@ if(WIN32)
         platform/win/platform_gpu_win.c
         platform/win/platform_stubs.c
         platform/win/temporal_filter.cu
+    platform/win/dncnn_cuda.cu
     )
 
     include_directories(
@@ -99,6 +102,7 @@ if(WIN32)
     endif()
 
     target_link_libraries(bayerflow ws2_32)
+    target_link_libraries(bayerflow "C:/Users/kaden/onnxruntime-gpu/onnxruntime-win-x64-gpu-1.24.3/lib/onnxruntime.lib")
 
 else()
     target_compile_definitions(bayerflow PRIVATE BAYERFLOW_MAC=1)

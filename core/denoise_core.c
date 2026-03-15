@@ -150,15 +150,26 @@ static inline void temporal_filter_frame_gpu_ring(
 
 /* ---- ML / CNN post-filter — not yet available on Windows ---- */
 static inline int    ml_denoiser_available(void)         { return 0; }
-static inline int    cnn_postfilter_available(void)      { return 0; }
-static inline int    mps_postfilter_available(void)      { return 0; }
+/* DnCNN CUDA post-filter */
+extern int dncnn_cuda_init(const char *weight_path);
+extern int dncnn_cuda_denoise_bayer(uint16_t *bayer, int width, int height, float blend, float noise_sigma);
+extern void dncnn_cuda_destroy(void);
+static int g_dncnn_ready = 0;
+static inline int cnn_postfilter_available(void) {
+    if (!g_dncnn_ready) {
+        if (dncnn_cuda_init("C:\\Users\\kaden\\BayerFlow-Win\\postfilter_1ch_weights.bin") == 0)
+            g_dncnn_ready = 1;
+    }
+    return g_dncnn_ready;
+}
+static inline int    mps_postfilter_available(void)      { return cnn_postfilter_available(); }
 static inline void   denoise_frame_ml(uint16_t *o, const uint16_t **f, int nf, int ci,
                                       int w, int h, float ns)
 { (void)o;(void)f;(void)nf;(void)ci;(void)w;(void)h;(void)ns; }
 static inline void   postfilter_frame_cnn(uint16_t *o, const uint16_t *in, int w, int h)
 { (void)o;(void)in;(void)w;(void)h; }
 static inline void   postfilter_frame_mps(uint16_t *b, int w, int h, float blend)
-{ (void)b;(void)w;(void)h;(void)blend; }
+{ dncnn_cuda_denoise_bayer(b, w, h, blend, 0); }
 static inline void   postfilter_frame_mps_shared(int idx, int w, int h, float blend)
 { (void)idx;(void)w;(void)h;(void)blend; }
 static inline void   mps_postfilter_set_protect_subjects(int e, float p, int inv)
@@ -2250,7 +2261,7 @@ int denoise_file(
                 float cw0 = compute_adaptive_center_weight(
                     (const float **)of_fx_sets[ping], (const float **)of_fy_sets[ping],
                     frames_loaded, center, green_w, green_h, NULL);
-                int use_shared = (tf_mode == 2 && cnn_ctx.use_cnn);
+                int use_shared = 0;  /* Windows: no Metal shared buffers */
                 /* Motion-adaptive GPU window: far neighbors have negligible bilateral weight
                  * at high flow (exp(-flow²/8) → 0.006% at 5px). Reducing from 14 to 4
                  * neighbors cuts Metal dispatches ~71%, saving ~120ms at high flow. */
@@ -2413,7 +2424,7 @@ int denoise_file(
 
                 /* Kick CNN(0) in background — spatial + MPS post-filter */
                 cnn_ctx.bayer_buf = denoised_bufs[ping];
-                cnn_ctx.shared_buf_idx = use_shared ? ping : -1;
+                cnn_ctx.shared_buf_idx = -1  /* Windows: no shared buffer, use bayer_buf path */;
                 pthread_mutex_lock(&sync.mutex);
                 sync.cnn_done = 0; sync.cnn_has_work = 1;
                 pthread_cond_signal(&sync.cnn_work_cond);
@@ -2550,7 +2561,7 @@ int denoise_file(
                  * VST+Bilateral uses async commit+wait to overlap GPU with ANE OF(f+1).
                  * On M-series, ANE and GPU are independent hardware — they run truly
                  * in parallel, turning the 0.21+0.17=0.38s serial into max(0.21,0.17)=0.21s. */
-                int use_shared_ss = (tf_mode == 2 && cnn_ctx.use_cnn);
+                int use_shared_ss = 0;
                 /* Motion-adaptive GPU window (same logic as warm-up path) */
                 int max_gpu_nbrs_ss = (smoothed_flow < 3.0f) ? 14 : (smoothed_flow < 8.0f) ? 10 : 6;
                 double t0 = timer_now();

@@ -76,6 +76,7 @@ int main(int argc, char **argv) {
     DenoiseCConfig cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.window_size         = 15;
+    cfg.use_cnn_postfilter  = 1;
     cfg.strength            = 1.5f;
     cfg.noise_sigma         = 0.0f;   /* auto */
     cfg.spatial_strength    = 0.0f;
