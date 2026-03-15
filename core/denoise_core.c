@@ -2062,9 +2062,9 @@ int denoise_file(
             double _t0 = timer_now(); \
             if (mps_postfilter_available()) { \
                 if (t_frame_count == 0) fprintf(stderr, "CNN: MPS postfilter ACTIVE (blend=%.2f, 2pass=%d)\n", cnn_blend, cnn_two_pass); \
-                postfilter_frame_mps(denoised_bufs[(p)], width, height, cnn_blend); \
-                if (cnn_two_pass) \
-                    postfilter_frame_mps(denoised_bufs[(p)], width, height, cnn_blend_pass2); \
+                postfilter_frame_mps(denoised_bufs[(p)], width, height, 0.4f); \
+                /* 2nd pass disabled for DnCNN CUDA */ \
+                /* (blend tuned to 0.4f single pass) */ \
             } else if (cnn_postfilter_available()) { \
                 if (t_frame_count == 0) fprintf(stderr, "CNN: CoreML postfilter ACTIVE\n"); \
                 postfilter_frame_cnn(denoised_bufs[(p)], denoised_bufs[(p)], width, height); \
@@ -2152,7 +2152,7 @@ int denoise_file(
             cnn_ctx.cnn_blend = cnn_blend;
             cnn_ctx.cnn_two_pass = cnn_two_pass;
             cnn_ctx.cnn_blend_pass2 = cnn_blend_pass2;
-            cnn_ctx.use_cnn = 1;
+            cnn_ctx.use_cnn = 0;  /* Windows: DnCNN runs inline, not in background thread */
         } else {
             cnn_ctx.cnn_blend = 0.0f;
             cnn_ctx.cnn_two_pass = 0;
@@ -2426,7 +2426,7 @@ int denoise_file(
                 cnn_ctx.bayer_buf = denoised_bufs[ping];
                 cnn_ctx.shared_buf_idx = -1  /* Windows: no shared buffer, use bayer_buf path */;
                 pthread_mutex_lock(&sync.mutex);
-                sync.cnn_done = 0; sync.cnn_has_work = 1;
+                if (cnn_ctx.use_cnn) { sync.cnn_done = 0; sync.cnn_has_work = 1; } else { sync.cnn_done = 1; }
                 pthread_cond_signal(&sync.cnn_work_cond);
                 pthread_mutex_unlock(&sync.mutex);
 
@@ -2494,6 +2494,15 @@ int denoise_file(
                 if (sync.error && ret == DENOISE_OK) ret = sync.error;
                 pthread_mutex_unlock(&sync.mutex);
                 if (ret != DENOISE_OK) break;
+
+                /* Inline DnCNN (Windows: no CNN background thread) */
+                if (!cnn_ctx.use_cnn && cfg->use_cnn_postfilter && mps_postfilter_available()) {
+                    double _tcnn = timer_now();
+                    postfilter_frame_mps(denoised_bufs[1 - ping], width, height, 0.4f)  /* tuned for DnCNN CUDA */;
+                    /* 2nd pass disabled */
+                    /* (skipped) */
+                    t_accum_cnn += timer_now() - _tcnn;
+                }
 
                 /* Kick Encode(f-1) — CNN just finished on buf[1-ping] */
                 enc_ctx.denoised_in = denoised_bufs[1 - ping];
@@ -2734,7 +2743,7 @@ int denoise_file(
                 cnn_ctx.bayer_buf = denoised_bufs[ping];
                 cnn_ctx.shared_buf_idx = use_shared_ss ? ping : -1;
                 pthread_mutex_lock(&sync.mutex);
-                sync.cnn_done = 0; sync.cnn_has_work = 1;
+                if (cnn_ctx.use_cnn) { sync.cnn_done = 0; sync.cnn_has_work = 1; } else { sync.cnn_done = 1; }
                 pthread_cond_signal(&sync.cnn_work_cond);
                 pthread_mutex_unlock(&sync.mutex);
 
