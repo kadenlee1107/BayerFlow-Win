@@ -14,6 +14,7 @@ static OrtEnv *g_env = NULL;
 static OrtSession *g_session = NULL;
 static OrtSessionOptions *g_opts = NULL;
 static OrtMemoryInfo *g_mem_info = NULL;
+static OrtRunOptions *g_run_opts = NULL;
 
 static int g_width = 0, g_height = 0;
 static int g_rw = 0, g_rh = 0;  /* padded to mult of 8 */
@@ -36,18 +37,63 @@ int raft_onnx_init(const char *model_path, int width, int height) {
     if (ort_check(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "bayerflow", &g_env), "CreateEnv")) return -1;
     if (ort_check(g_ort->CreateSessionOptions(&g_opts), "CreateSessionOptions")) return -1;
 
-    /* Enable CUDA */
-    OrtCUDAProviderOptionsV2 *cuda_opts = NULL;
-    if (ort_check(g_ort->CreateCUDAProviderOptions(&cuda_opts), "CreateCUDAOptions")) {
-        fprintf(stderr, "RAFT ONNX: CUDA provider not available, using CPU\n");
-    } else {
-        if (ort_check(g_ort->SessionOptionsAppendExecutionProvider_CUDA_V2(g_opts, cuda_opts), "AppendCUDA")) {
-            fprintf(stderr, "RAFT ONNX: CUDA append failed, using CPU\n");
+    /* Try TensorRT EP first (FP16, engine cache), fall back to CUDA EP */
+    int have_gpu = 0;
+
+    /* TensorRT EP — FP16 with engine caching */
+    {
+        const char *trt_keys[] = {
+            "trt_fp16_enable",
+            "trt_engine_cache_enable",
+            "trt_engine_cache_path",
+            "trt_max_workspace_size"
+        };
+        const char *trt_vals[] = {
+            "1",
+            "1",
+            "C:\\Users\\kaden\\BayerFlow-Win\\trt_cache",
+            "2147483648"  /* 2 GB workspace */
+        };
+        OrtTensorRTProviderOptionsV2 *trt_opts = NULL;
+        if (g_ort->CreateTensorRTProviderOptions(&trt_opts) == NULL) {
+            g_ort->UpdateTensorRTProviderOptions(trt_opts, trt_keys, trt_vals, 4);
+            if (g_ort->SessionOptionsAppendExecutionProvider_TensorRT_V2(g_opts, trt_opts) == NULL) {
+                fprintf(stderr, "RAFT ONNX: TensorRT EP enabled (FP16 + cache)\n");
+                have_gpu = 1;
+            }
+            g_ort->ReleaseTensorRTProviderOptions(trt_opts);
         }
-        g_ort->ReleaseCUDAProviderOptions(cuda_opts);
+    }
+
+    /* CUDA EP as fallback (with arena fixes) */
+    if (!have_gpu) {
+        OrtCUDAProviderOptionsV2 *cuda_opts = NULL;
+        if (ort_check(g_ort->CreateCUDAProviderOptions(&cuda_opts), "CreateCUDAOptions")) {
+            fprintf(stderr, "RAFT ONNX: CUDA provider not available, using CPU\n");
+        } else {
+            const char *keys[] = {
+                "arena_extend_strategy",
+                "cudnn_conv_use_max_workspace",
+                "gpu_mem_limit"
+            };
+            const char *vals[] = {
+                "kSameAsRequested",
+                "0",
+                "2147483648"
+            };
+            g_ort->UpdateCUDAProviderOptions(cuda_opts, keys, vals, 3);
+            if (ort_check(g_ort->SessionOptionsAppendExecutionProvider_CUDA_V2(g_opts, cuda_opts), "AppendCUDA")) {
+                fprintf(stderr, "RAFT ONNX: CUDA append failed, using CPU\n");
+            } else {
+                fprintf(stderr, "RAFT ONNX: CUDA EP enabled (TRT unavailable)\n");
+                have_gpu = 1;
+            }
+            g_ort->ReleaseCUDAProviderOptions(cuda_opts);
+        }
     }
 
     g_ort->SetSessionGraphOptimizationLevel(g_opts, ORT_ENABLE_ALL);
+    g_ort->DisableMemPattern(g_opts);
 
     /* Load model — convert path to wide string for Windows */
     size_t pathlen = strlen(model_path) + 1;
@@ -63,6 +109,11 @@ int raft_onnx_init(const char *model_path, int width, int height) {
     if (ort_check(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &g_mem_info), "MemInfo"))
         return -1;
 
+    /* Per-run arena shrinkage — releases GPU memory after each inference */
+    if (ort_check(g_ort->CreateRunOptions(&g_run_opts), "CreateRunOptions"))
+        return -1;
+    g_ort->AddRunConfigEntry(g_run_opts, "memory.enable_memory_arena_shrinkage", "gpu:0");
+
     g_width = width;
     g_height = height;
     /* Pad to multiple of 8 (half res) */
@@ -74,6 +125,7 @@ int raft_onnx_init(const char *model_path, int width, int height) {
 }
 
 void raft_onnx_destroy(void) {
+    if (g_run_opts) { g_ort->ReleaseRunOptions(g_run_opts);  g_run_opts = NULL; }
     if (g_mem_info) { g_ort->ReleaseMemoryInfo(g_mem_info); g_mem_info = NULL; }
     if (g_session)  { g_ort->ReleaseSession(g_session);     g_session = NULL; }
     if (g_opts)     { g_ort->ReleaseSessionOptions(g_opts);  g_opts = NULL; }
@@ -145,7 +197,7 @@ int raft_onnx_compute(const uint16_t *center, const uint16_t *neighbor,
     const char *output_names[] = {"flow"};
     OrtValue *output_tensor = NULL;
 
-    if (ort_check(g_ort->Run(g_session, NULL, input_names, (const OrtValue *const *)input_tensors,
+    if (ort_check(g_ort->Run(g_session, g_run_opts, input_names, (const OrtValue *const *)input_tensors,
                   2, output_names, 1, &output_tensor), "Run"))
         goto fail;
 

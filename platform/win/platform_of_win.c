@@ -28,11 +28,14 @@ static int g_use_onnx = 0;
 int platform_of_init(int width, int height) {
     g_of_init_w = width >> 1;
     g_of_init_h = height >> 1;
-    /* Use Python RAFT server for OF (ONNX Runtime CUDA has memory leak).
-     * DnCNN CUDA post-filter still runs inline — no conflict since
-     * RAFT runs in separate Python process with its own CUDA context. */
-    g_use_onnx = 0;
-    fprintf(stderr, "OF: RAFT (Python server) %dx%d\n", g_of_init_w, g_of_init_h);
+    /* Try ONNX C API first — no Python, no file I/O */
+    if (raft_onnx_init("C:\\Users\\kaden\\BayerFlow-Win\\raft_small.onnx", g_of_init_w, g_of_init_h) == 0) {
+        fprintf(stderr, "OF: RAFT ONNX C API %dx%d\n", g_of_init_w, g_of_init_h);
+        g_use_onnx = 1;
+    } else {
+        fprintf(stderr, "OF: RAFT Python fallback %dx%d\n", g_of_init_w, g_of_init_h);
+        g_use_onnx = 0;
+    }
     return 0;
 }
 
