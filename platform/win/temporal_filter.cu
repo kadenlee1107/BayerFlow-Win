@@ -317,9 +317,7 @@ __global__ void vst_bilateral_finalize_k(
     }
 
     float mf           = max_flow_buf[idx];
-    /* Soften max_flow with sqrt — most neighbors have lower flow than the max */
-    float mf_soft = sqrtf(fmaxf(mf, 0.0f));
-    float center_floor = 0.3f + 0.15f * fminf(mf_soft / 1.5f, 1.0f);
+    float center_floor = 0.3f + 0.3f * fminf(mf / 3.0f, 1.0f);  /* Mac original */
     float center_w     = 1.0f;
 
     float center_frac = center_w / (center_w + nb_wsum);
@@ -484,7 +482,7 @@ static void launch_vst_bilateral(
     p.width       = (unsigned)width;
     p.height      = (unsigned)height;
     p.noise_sigma = noise_sigma;
-    p.h           = 1.5f;        /* full-res tiled flow — can use tight h */
+    p.h           = 1.5f;        /* best balance — correct noise model makes this work — can use tight h */
     p.z_reject    = 3.0f;
     p.flow_sigma2 = 8.0f;
     p.sigma_g2    = 0.5f;
