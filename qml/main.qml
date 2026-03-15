@@ -1,0 +1,427 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.Universal
+import QtQuick.Layouts
+import QtQuick.Dialogs
+
+ApplicationWindow {
+    id: root
+    visible: true
+    width: 1000
+    height: 780
+    minimumWidth: 800
+    minimumHeight: 650
+    title: "BayerFlow"
+    color: "#0a0a0a"
+    flags: Qt.Window | Qt.FramelessWindowHint
+
+    /* ---- Resize handles ---- */
+    MouseArea {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        width: 12; height: 12
+        cursorShape: Qt.SizeFDiagCursor
+        property point clickPos
+        onPressed: clickPos = Qt.point(mouseX, mouseY)
+        onPositionChanged: {
+            root.width = Math.max(root.minimumWidth, root.width + mouseX - clickPos.x)
+            root.height = Math.max(root.minimumHeight, root.height + mouseY - clickPos.y)
+        }
+    }
+
+    /* ---- Custom Title Bar ---- */
+    Rectangle {
+        id: titleBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 40
+        color: "#111111"
+        z: 10
+
+        /* Subtle bottom border */
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#1a1a1a" }
+
+        MouseArea {
+            anchors.fill: parent
+            property point clickPos
+            onPressed: clickPos = Qt.point(mouseX, mouseY)
+            onPositionChanged: { root.x += mouseX - clickPos.x; root.y += mouseY - clickPos.y }
+            onDoubleClicked: root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
+        }
+
+        Row {
+            anchors.left: parent.left
+            anchors.leftMargin: 14
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 8
+
+            /* App icon placeholder */
+            Rectangle {
+                width: 18; height: 18; radius: 4
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#0e639c" }
+                    GradientStop { position: 1.0; color: "#569cd6" }
+                }
+                Text { anchors.centerIn: parent; text: "B"; color: "#fff"; font.pixelSize: 11; font.weight: Font.Bold }
+            }
+
+            Text {
+                text: "BayerFlow"
+                color: "#909090"
+                font.pixelSize: 13
+                font.family: "Segoe UI"
+                font.weight: Font.Medium
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        Row {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
+
+            Repeater {
+                model: [
+                    { icon: "\u2013", hoverColor: "#2a2a2a", action: "min" },
+                    { icon: "\u25a1", hoverColor: "#2a2a2a", action: "max" },
+                    { icon: "\u2715", hoverColor: "#c42b1c", action: "close" }
+                ]
+                Rectangle {
+                    required property var modelData
+                    required property int index
+                    width: 46; height: 40
+                    color: winBtnMA.containsMouse ? modelData.hoverColor : "transparent"
+                    Text {
+                        anchors.centerIn: parent; text: modelData.icon
+                        color: (index === 2 && winBtnMA.containsMouse) ? "#fff" : "#888"
+                        font.pixelSize: index === 2 ? 11 : 13
+                    }
+                    MouseArea {
+                        id: winBtnMA; anchors.fill: parent; hoverEnabled: true
+                        onClicked: {
+                            if (modelData.action === "min") root.showMinimized()
+                            else if (modelData.action === "max") root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
+                            else Qt.quit()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* ---- Status Bar ---- */
+    Rectangle {
+        id: statusBar
+        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+        height: 26; z: 10
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "#0e639c" }
+            GradientStop { position: 1.0; color: "#0d5689" }
+        }
+        Text {
+            anchors.left: parent.left; anchors.leftMargin: 12; anchors.verticalCenter: parent.verticalCenter
+            text: backend.statusText; color: "#e0e0e0"; font.pixelSize: 11; font.family: "Segoe UI"
+        }
+        Text {
+            anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter
+            text: "v1.0"; color: "#80b0d0"; font.pixelSize: 11
+        }
+    }
+
+    /* ---- Card Component ---- */
+    component Card: Rectangle {
+        property string title: ""
+        property alias content: cardContent
+        default property alias cardChildren: cardContent.data
+
+        color: cardHover.containsMouse ? "#191919" : "#151515"
+        radius: 8
+        border.color: cardHover.containsMouse ? "#303030" : "#222222"
+        border.width: 1
+        Behavior on color { ColorAnimation { duration: 150 } }
+        Behavior on border.color { ColorAnimation { duration: 150 } }
+
+        HoverHandler { id: cardHover }
+
+        Column {
+            id: cardContent
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 10
+
+            Text {
+                text: title
+                color: "#569cd6"
+                font.pixelSize: 11
+                font.weight: Font.Bold
+                font.letterSpacing: 2
+                visible: title !== ""
+            }
+        }
+    }
+
+    /* ---- Styled Button Component ---- */
+    component StyledButton: Rectangle {
+        property string label: ""
+        property color baseColor: "#252525"
+        property color hoverColor: "#333333"
+        property color textColor: "#aaaaaa"
+        property bool enabled_: true
+        signal clicked()
+
+        width: 90; height: 32; radius: 5
+        color: btnMA.containsMouse && enabled_ ? hoverColor : baseColor
+        opacity: enabled_ ? 1.0 : 0.4
+        Behavior on color { ColorAnimation { duration: 100 } }
+
+        Text { anchors.centerIn: parent; text: label; color: textColor; font.pixelSize: 12 }
+        MouseArea { id: btnMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+            onClicked: if (parent.enabled_) parent.clicked()
+        }
+    }
+
+    /* ---- Main Content ---- */
+    Flickable {
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: statusBar.top
+        anchors.margins: 14
+        contentHeight: mainCol.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        Column {
+            id: mainCol
+            width: parent.width
+            spacing: 10
+
+            /* ======== FILES ======== */
+            Card {
+                width: parent.width; height: 105; title: "FILES"
+
+                Column {
+                    anchors.left: parent.left; anchors.right: parent.right
+                    anchors.top: parent.top; anchors.topMargin: 32
+                    spacing: 8
+
+                    Row {
+                        width: parent.width; spacing: 8
+                        Text { text: "Input"; color: "#777"; width: 48; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                        Rectangle {
+                            width: parent.width - 148; height: 30; color: "#1a1a1a"; radius: 4; border.color: "#2a2a2a"; border.width: 1
+                            TextInput { anchors.fill: parent; anchors.margins: 6; color: "#d4d4d4"; font.pixelSize: 12; clip: true
+                                text: backend.inputPath; onTextChanged: backend.inputPath = text; selectByMouse: true }
+                        }
+                        StyledButton { label: "Browse"; onClicked: inputDialog.open() }
+                    }
+                    Row {
+                        width: parent.width; spacing: 8
+                        Text { text: "Output"; color: "#777"; width: 48; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                        Rectangle {
+                            width: parent.width - 148; height: 30; color: "#1a1a1a"; radius: 4; border.color: "#2a2a2a"; border.width: 1
+                            TextInput { anchors.fill: parent; anchors.margins: 6; color: "#d4d4d4"; font.pixelSize: 12; clip: true
+                                text: backend.outputPath; onTextChanged: backend.outputPath = text; selectByMouse: true }
+                        }
+                        StyledButton { label: "Browse"; onClicked: outputDialog.open() }
+                    }
+                }
+            }
+
+            /* ======== PREVIEW ======== */
+            Card {
+                width: parent.width; height: 320; title: ""
+
+                Row {
+                    anchors.top: parent.top; anchors.topMargin: 0
+                    width: parent.width; spacing: 0
+                    Text { text: "PREVIEW"; color: "#569cd6"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2 }
+                    Item { width: parent.width - 180; height: 1 }
+                    StyledButton { label: "Load Frame"; width: 100; height: 28; onClicked: backend.loadPreview() }
+                }
+
+                Rectangle {
+                    anchors.top: parent.top; anchors.topMargin: 36
+                    width: parent.width; height: parent.height - 48
+                    color: "#0a0a0a"; radius: 6; clip: true
+                    border.color: "#1a1a1a"; border.width: 1
+
+                    Image {
+                        id: previewImg
+                        anchors.fill: parent; anchors.margins: 2
+                        fillMode: Image.PreserveAspectFit
+                        source: ""; cache: false
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: previewImg.source == "" ? "Drag to select noise patch" : ""
+                        color: "#333"; font.pixelSize: 13
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        property point origin; property bool isDragging: false
+                        onPressed: function(mouse) {
+                            origin = Qt.point(mouse.x, mouse.y)
+                            rubberBand.x = mouse.x; rubberBand.y = mouse.y
+                            rubberBand.width = 0; rubberBand.height = 0
+                            rubberBand.visible = true; isDragging = true
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (!isDragging) return
+                            rubberBand.x = Math.min(origin.x, mouse.x)
+                            rubberBand.y = Math.min(origin.y, mouse.y)
+                            rubberBand.width = Math.abs(mouse.x - origin.x)
+                            rubberBand.height = Math.abs(mouse.y - origin.y)
+                        }
+                        onReleased: function(mouse) {
+                            isDragging = false
+                            if (rubberBand.width < 10 || rubberBand.height < 10) { rubberBand.visible = false; return }
+                            if (previewImg.sourceSize.width <= 0) { rubberBand.visible = false; return }
+                            var pw = previewImg.paintedWidth > 0 ? previewImg.paintedWidth : previewImg.width
+                            var ph = previewImg.paintedHeight > 0 ? previewImg.paintedHeight : previewImg.height
+                            var sx = previewImg.sourceSize.width / pw, sy = previewImg.sourceSize.height / ph
+                            var ox = (previewImg.width - pw) / 2, oy = (previewImg.height - ph) / 2
+                            backend.profileNoise(
+                                Math.round((rubberBand.x - ox) * sx) * 2, Math.round((rubberBand.y - oy) * sy) * 2,
+                                Math.round(rubberBand.width * sx) * 2, Math.round(rubberBand.height * sy) * 2)
+                            rubberBand.visible = false
+                        }
+                    }
+
+                    Rectangle {
+                        id: rubberBand; visible: false; radius: 2
+                        color: Qt.rgba(0.34, 0.61, 0.84, 0.12)
+                        border.color: "#569cd6"; border.width: 1.5
+                    }
+                }
+            }
+
+            /* ======== NOISE PROFILE + SETTINGS ======== */
+            Row {
+                width: parent.width; spacing: 10
+
+                Card {
+                    width: (parent.width - 10) / 2; height: 135; title: "NOISE PROFILE"
+
+                    Grid {
+                        anchors.top: parent.top; anchors.topMargin: 32
+                        columns: 2; columnSpacing: 24; rowSpacing: 8
+
+                        Text { text: "Black Level"; color: "#666"; font.pixelSize: 12 }
+                        Text { text: backend.noiseProfileValid ? backend.noiseBlackLevel.toFixed(1) : "--"; color: "#4ec9b0"; font.pixelSize: 13; font.family: "Cascadia Mono" }
+                        Text { text: "Shot Gain"; color: "#666"; font.pixelSize: 12 }
+                        Text { text: backend.noiseProfileValid ? backend.noiseShotGain.toFixed(3) : "--"; color: "#4ec9b0"; font.pixelSize: 13; font.family: "Cascadia Mono" }
+                        Text { text: "Read Noise"; color: "#666"; font.pixelSize: 12 }
+                        Text { text: backend.noiseProfileValid ? backend.noiseReadNoise.toFixed(1) : "--"; color: "#4ec9b0"; font.pixelSize: 13; font.family: "Cascadia Mono" }
+                        Text { text: "Sigma"; color: "#666"; font.pixelSize: 12 }
+                        Text { text: backend.noiseProfileValid ? backend.noiseSigma.toFixed(1) : "--"; color: "#4ec9b0"; font.pixelSize: 13; font.family: "Cascadia Mono" }
+                    }
+                }
+
+                Card {
+                    width: (parent.width - 10) / 2; height: 135; title: "SETTINGS"
+
+                    Grid {
+                        anchors.top: parent.top; anchors.topMargin: 32
+                        columns: 2; columnSpacing: 20; rowSpacing: 8
+
+                        Text { text: "Strength"; color: "#666"; font.pixelSize: 12; width: 65 }
+                        SpinBox { from: 1; to: 50; value: 15; stepSize: 1; editable: true; width: 130; height: 30
+                            onValueChanged: backend.strength = value / 10.0
+                            textFromValue: function(v) { return (v / 10.0).toFixed(1) }
+                        }
+                        Text { text: "Window"; color: "#666"; font.pixelSize: 12; width: 65 }
+                        SpinBox { from: 3; to: 31; value: 15; stepSize: 2; editable: true; width: 130; height: 30
+                            onValueChanged: backend.windowSize = value
+                        }
+                    }
+                }
+            }
+
+            /* ======== ACTION BAR ======== */
+            Card {
+                width: parent.width; height: 68; title: ""
+
+                Row {
+                    anchors.fill: parent; spacing: 12
+                    anchors.topMargin: 4
+
+                    /* Start */
+                    Rectangle {
+                        width: 150; height: 42; radius: 6
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: startMA.containsMouse ? "#1488cc" : "#0e639c" }
+                            GradientStop { position: 1.0; color: startMA.containsMouse ? "#0e639c" : "#0a4f7d" }
+                        }
+                        opacity: backend.processing ? 0.4 : 1.0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                        Text { anchors.centerIn: parent; text: "Start Denoise"; color: "#fff"; font.pixelSize: 14; font.weight: Font.Bold }
+                        MouseArea { id: startMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: if (!backend.processing) backend.startDenoise()
+                        }
+                    }
+
+                    /* Cancel */
+                    Rectangle {
+                        width: 90; height: 42; radius: 6
+                        color: cancelMA.containsMouse && backend.processing ? "#8b2d2d" : "#2a1515"
+                        opacity: backend.processing ? 1.0 : 0.3
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                        Text { anchors.centerIn: parent; text: "Cancel"; color: "#e08080"; font.pixelSize: 13 }
+                        MouseArea { id: cancelMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: if (backend.processing) backend.cancelDenoise()
+                        }
+                    }
+
+                    /* Progress */
+                    Rectangle {
+                        width: parent.width - 270; height: 42
+                        color: "#0d0d0d"; radius: 5
+                        border.color: "#1a1a1a"; border.width: 1
+
+                        Rectangle {
+                            anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                            anchors.margins: 2
+                            width: Math.max(0, (parent.width - 4) * backend.progressPercent / 100)
+                            radius: 4
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0.0; color: "#0e639c" }
+                                GradientStop { position: 1.0; color: "#1488cc" }
+                            }
+                            Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            text: backend.processing ? backend.progressPercent + "%" : ""
+                            color: "#d4d4d4"; font.pixelSize: 13; font.family: "Cascadia Mono"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /* ---- File Dialogs ---- */
+    FileDialog {
+        id: inputDialog; title: "Select Input"
+        nameFilters: ["Video files (*.mov *.MOV *.braw *.dng *.ari *.crm)"]
+        onAccepted: backend.inputPath = selectedFile
+    }
+    FileDialog {
+        id: outputDialog; title: "Select Output"
+        nameFilters: ["MOV (*.mov)", "DNG (*.dng)", "EXR (*.exr)"]
+        fileMode: FileDialog.SaveFile
+        onAccepted: backend.outputPath = selectedFile
+    }
+
+    /* ---- Preview reload ---- */
+    Connections {
+        target: backend
+        function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+    }
+}

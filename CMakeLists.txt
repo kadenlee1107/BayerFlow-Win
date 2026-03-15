@@ -133,5 +133,27 @@ if(Qt6_FOUND)
         )
     endif()
 else()
-    message(STATUS "Qt6 not found — skipping GUI (CLI-only build)")
+    message(STATUS "Qt6 Widgets not found — skipping Widgets GUI")
+endif()
+
+# ---- Qt QML GUI (modern, optional) ----
+find_package(Qt6Quick QUIET PATHS "C:/Qt/6.10.2/msvc2022_64/lib/cmake/Qt6Quick")
+find_package(Qt6QuickControls2 QUIET PATHS "C:/Qt/6.10.2/msvc2022_64/lib/cmake/Qt6QuickControls2")
+if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND)
+    message(STATUS "Qt6 Quick found — building bayerflow_qml")
+    set(CMAKE_AUTOMOC ON)
+
+    add_executable(bayerflow_qml WIN32
+        qml/main.cpp
+        qml/Backend.cpp
+    )
+    target_link_libraries(bayerflow_qml bayerflow_core Qt6::Quick Qt6::QuickControls2 Qt6::Qml)
+
+    if(MSVC)
+        target_compile_options(bayerflow_qml PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:/FI "compat_posix.h" /O2 /arch:AVX2>
+        )
+    endif()
+else()
+    message(STATUS "Qt6 Quick not found — skipping QML GUI (install Qt Quick module)")
 endif()
