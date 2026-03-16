@@ -157,7 +157,10 @@ extern void dncnn_cuda_destroy(void);
 static int g_dncnn_ready = 0;
 static inline int cnn_postfilter_available(void) {
     if (!g_dncnn_ready) {
-        if (dncnn_cuda_init("C:\\Users\\kaden\\BayerFlow-Win\\postfilter_1ch_weights.bin") == 0)
+        /* Try relative paths first, then fallback to absolute */
+        if (dncnn_cuda_init("postfilter_1ch_weights.bin") == 0 ||
+            dncnn_cuda_init("..\\postfilter_1ch_weights.bin") == 0 ||
+            dncnn_cuda_init("C:\\Users\\kaden\\BayerFlow-Win\\postfilter_1ch_weights.bin") == 0)
             g_dncnn_ready = 1;
     }
     return g_dncnn_ready;

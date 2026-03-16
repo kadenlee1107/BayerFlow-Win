@@ -84,6 +84,8 @@ if(WIN32)
     target_compile_definitions(bayerflow_core PUBLIC BAYERFLOW_WINDOWS=1)
     target_link_libraries(bayerflow_core CUDA::cudart CUDA::cuda_driver)
 
+
+
     find_package(pthreads QUIET)
     if(pthreads_FOUND)
         target_link_libraries(bayerflow_core PThreads4W::PThreads4W)
