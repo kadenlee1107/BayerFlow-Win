@@ -50,6 +50,16 @@ Backend::Backend(QObject *parent) : QObject(parent)
     QSettings settings("BayerFlow", "BayerFlow");
     m_isFirstLaunch = !settings.value("onboardingShown", false).toBool();
     m_trainingConsent = settings.value("trainingDataConsent", false).toBool();
+    /* Licensing */
+    m_isLicensed = settings.value("isLicensed", false).toBool();
+    QDateTime firstLaunch = settings.value("firstLaunchDate").toDateTime();
+    if (!firstLaunch.isValid()) {
+        firstLaunch = QDateTime::currentDateTime();
+        settings.setValue("firstLaunchDate", firstLaunch);
+    }
+    int daysSinceFirst = (int)firstLaunch.daysTo(QDateTime::currentDateTime());
+    m_trialDays = qMax(0, 14 - daysSinceFirst);
+
     m_defaultOutputDir = settings.value("defaultOutputDir", "").toString();
     m_autoRevealOutput = settings.value("autoRevealOutput", false).toBool();
     m_playSoundOnComplete = settings.value("playSoundOnComplete", true).toBool();
@@ -196,6 +206,8 @@ void Backend::generateDenoisedPreview()
         cfg.spatial_strength     = m_spatialStrength;
         cfg.temporal_filter_mode = m_tfMode;
         cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
+        cfg.protect_subjects     = m_protectSubjects ? 1 : 0;
+        cfg.invert_mask          = m_invertMask ? 1 : 0;
         cfg.auto_dark_frame      = 1;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
@@ -299,6 +311,8 @@ void Backend::startDenoise()
         cfg.spatial_strength     = m_spatialStrength;
         cfg.temporal_filter_mode = m_tfMode;
         cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
+        cfg.protect_subjects     = m_protectSubjects ? 1 : 0;
+        cfg.invert_mask          = m_invertMask ? 1 : 0;
         cfg.auto_dark_frame      = 1;
         cfg.output_format        = m_outputFormat;
         cfg.start_frame          = m_startFrame;
@@ -499,6 +513,8 @@ void Backend::processNextQueueItem()
         cfg.spatial_strength     = m_spatialStrength;
         cfg.temporal_filter_mode = m_tfMode;
         cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
+        cfg.protect_subjects     = m_protectSubjects ? 1 : 0;
+        cfg.invert_mask          = m_invertMask ? 1 : 0;
         cfg.auto_dark_frame      = 1;
         cfg.output_format        = m_outputFormat;
         cfg.start_frame          = m_startFrame;
@@ -731,6 +747,55 @@ QVariantMap Backend::computeHistogram()
     result["b"] = bList;
     result["luma"] = lumaList;
     return result;
+}
+
+/* ---- Licensing ---- */
+
+bool Backend::activateLicense(const QString &email, const QString &key)
+{
+    /* TODO: Ed25519 signature verification against public key
+     * For now, accept any non-empty key as valid (placeholder) */
+    if (email.isEmpty() || key.isEmpty()) return false;
+
+    QSettings settings("BayerFlow", "BayerFlow");
+    settings.setValue("isLicensed", true);
+    settings.setValue("licenseEmail", email);
+    settings.setValue("licenseKey", key);
+    m_isLicensed = true;
+    emit licenseChanged();
+    setStatus("License activated for " + email);
+    return true;
+}
+
+void Backend::deactivateLicense()
+{
+    QSettings settings("BayerFlow", "BayerFlow");
+    settings.remove("isLicensed");
+    settings.remove("licenseEmail");
+    settings.remove("licenseKey");
+    m_isLicensed = false;
+    emit licenseChanged();
+    setStatus("License deactivated");
+}
+
+QString Backend::licenseStatus() const
+{
+    if (m_isLicensed) return "Licensed";
+    if (m_trialDays > 0) return QString("Trial — %1 day%2 left").arg(m_trialDays).arg(m_trialDays == 1 ? "" : "s");
+    return "Trial expired";
+}
+
+/* ---- Training Data Upload ---- */
+
+void Backend::uploadPendingTrainingData()
+{
+    /* TODO: Implement presigned URL upload flow matching Mac TrainingDataUploader.swift
+     * 1. Scan AppData/BayerFlow/training_data/ for batch_*.bfpatch files
+     * 2. POST /upload-request to get presigned URL
+     * 3. PUT batch data to presigned URL
+     * 4. POST /upload-complete
+     * Requires QNetworkAccessManager (Qt Network module) */
+    setStatus("Training data upload not yet implemented");
 }
 
 /* ---- Update Checker ---- */

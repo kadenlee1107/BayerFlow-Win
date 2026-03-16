@@ -592,7 +592,7 @@ ApplicationWindow {
                 width: parent.width; spacing: 10
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 275; title: "NOISE PROFILE"
+                    width: (parent.width - 10) / 2; height: 320; title: "NOISE PROFILE"
 
                     Grid {
                         anchors.top: parent.top; anchors.topMargin: 32
@@ -610,7 +610,7 @@ ApplicationWindow {
                 }
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 275; title: "SETTINGS"
+                    width: (parent.width - 10) / 2; height: 320; title: "SETTINGS"
 
                     Column {
                         anchors.top: parent.top; anchors.topMargin: 30
@@ -668,6 +668,25 @@ ApplicationWindow {
                                 scale: 0.7
                             }
                             Text { text: backend.useCNN ? "ON (slower, better quality)" : "OFF (faster)"; color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                        }
+
+                        /* Subject protection */
+                        Row {
+                            spacing: 8; width: parent.width
+                            Text { text: "Protect Subjects"; color: "#666"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                            Switch {
+                                checked: backend.protectSubjects
+                                onToggled: backend.protectSubjects = checked
+                                scale: 0.7
+                            }
+                            Text {
+                                visible: backend.protectSubjects
+                                text: backend.invertMask ? "Boost background" : "Boost subjects"
+                                color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: backend.invertMask = !backend.invertMask
+                                }
+                            }
                         }
 
                         /* Frame range */

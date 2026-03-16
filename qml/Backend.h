@@ -38,6 +38,8 @@ class Backend : public QObject {
     Q_PROPERTY(float spatialStrength MEMBER m_spatialStrength NOTIFY settingsChanged)
     Q_PROPERTY(int tfMode MEMBER m_tfMode NOTIFY settingsChanged)
     Q_PROPERTY(bool useCNN MEMBER m_useCNN NOTIFY settingsChanged)
+    Q_PROPERTY(bool protectSubjects MEMBER m_protectSubjects NOTIFY settingsChanged)
+    Q_PROPERTY(bool invertMask MEMBER m_invertMask NOTIFY settingsChanged)
     Q_PROPERTY(QString preset READ preset WRITE setPreset NOTIFY presetChanged)
     Q_PROPERTY(int startFrame MEMBER m_startFrame NOTIFY settingsChanged)
     Q_PROPERTY(int endFrame MEMBER m_endFrame NOTIFY settingsChanged)
@@ -63,6 +65,12 @@ class Backend : public QObject {
     /* First launch + training consent */
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
+
+    /* Licensing */
+    Q_PROPERTY(bool isLicensed READ isLicensed NOTIFY licenseChanged)
+    Q_PROPERTY(int trialDaysRemaining READ trialDaysRemaining NOTIFY licenseChanged)
+    Q_PROPERTY(QString licenseStatus READ licenseStatus NOTIFY licenseChanged)
+    Q_PROPERTY(bool canDenoise READ canDenoise NOTIFY licenseChanged)
 
     /* Settings (persisted via QSettings) */
     Q_PROPERTY(QString defaultOutputDir MEMBER m_defaultOutputDir NOTIFY settingsChanged)
@@ -177,6 +185,17 @@ public slots:
 
     /* Update checker */
     Q_INVOKABLE void checkForUpdates();
+
+    /* Training data upload */
+    Q_INVOKABLE void uploadPendingTrainingData();
+
+    /* Licensing */
+    Q_INVOKABLE bool activateLicense(const QString &email, const QString &key);
+    Q_INVOKABLE void deactivateLicense();
+    bool isLicensed() const { return m_isLicensed; }
+    int trialDaysRemaining() const { return m_trialDays; }
+    QString licenseStatus() const;
+    bool canDenoise() const { return m_isLicensed || m_trialDays > 0; }
     QString watchFolderPath() const { return m_watchPath; }
 
 signals:
@@ -193,6 +212,7 @@ signals:
     void queueChanged();
     void watchChanged();
     void lutChanged();
+    void licenseChanged();
     void cameraDetected();
     void motionAnalyzed();
     void previewLoadingChanged();
@@ -219,6 +239,8 @@ private:
     float m_spatialStrength = 0.0f;
     int m_tfMode = 2;
     bool m_useCNN = true;
+    bool m_protectSubjects = false;
+    bool m_invertMask = false;
     QString m_preset = "Strong";
     int m_startFrame = 0;
     int m_endFrame = 0;  /* 0 = all */
@@ -232,6 +254,10 @@ private:
     /* First launch + consent */
     bool m_isFirstLaunch = true;
     bool m_trainingConsent = false;
+
+    /* Licensing */
+    bool m_isLicensed = false;
+    int m_trialDays = 14;
 
     /* Persisted settings */
     QString m_defaultOutputDir;
