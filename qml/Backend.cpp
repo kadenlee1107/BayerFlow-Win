@@ -50,6 +50,18 @@ Backend::Backend(QObject *parent) : QObject(parent)
     QSettings settings("BayerFlow", "BayerFlow");
     m_isFirstLaunch = !settings.value("onboardingShown", false).toBool();
     m_trainingConsent = settings.value("trainingDataConsent", false).toBool();
+    m_defaultOutputDir = settings.value("defaultOutputDir", "").toString();
+    m_autoRevealOutput = settings.value("autoRevealOutput", false).toBool();
+    m_playSoundOnComplete = settings.value("playSoundOnComplete", true).toBool();
+    m_showNotification = settings.value("showNotification", true).toBool();
+    m_defaultWindowSize = settings.value("defaultWindowSize", 15).toInt();
+    m_rememberSettings = settings.value("rememberSettings", true).toBool();
+}
+
+QString Backend::gpuName() const
+{
+    /* Detect NVIDIA GPU name via CUDA */
+    return "NVIDIA RTX (CUDA)";  /* TODO: cudaGetDeviceProperties for actual name */
 }
 
 Backend::~Backend()

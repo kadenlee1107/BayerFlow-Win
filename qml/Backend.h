@@ -59,6 +59,15 @@ class Backend : public QObject {
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
 
+    /* Settings (persisted via QSettings) */
+    Q_PROPERTY(QString defaultOutputDir MEMBER m_defaultOutputDir NOTIFY settingsChanged)
+    Q_PROPERTY(bool autoRevealOutput MEMBER m_autoRevealOutput NOTIFY settingsChanged)
+    Q_PROPERTY(bool playSoundOnComplete MEMBER m_playSoundOnComplete NOTIFY settingsChanged)
+    Q_PROPERTY(bool showNotification MEMBER m_showNotification NOTIFY settingsChanged)
+    Q_PROPERTY(int defaultWindowSize MEMBER m_defaultWindowSize NOTIFY settingsChanged)
+    Q_PROPERTY(bool rememberSettings MEMBER m_rememberSettings NOTIFY settingsChanged)
+    Q_PROPERTY(QString gpuName READ gpuName CONSTANT)
+
     /* Watch folder */
     Q_PROPERTY(bool isWatching READ isWatching NOTIFY watchChanged)
     Q_PROPERTY(QString watchFolderPath READ watchFolderPath NOTIFY watchChanged)
@@ -99,6 +108,7 @@ public:
     double fpsValue() const { return m_fps; }
 
     bool isFirstLaunch() const { return m_isFirstLaunch; }
+    QString gpuName() const;
     bool trainingConsent() const { return m_trainingConsent; }
     void setTrainingConsent(bool v);
 
@@ -208,6 +218,14 @@ private:
     /* First launch + consent */
     bool m_isFirstLaunch = true;
     bool m_trainingConsent = false;
+
+    /* Persisted settings */
+    QString m_defaultOutputDir;
+    bool m_autoRevealOutput = false;
+    bool m_playSoundOnComplete = true;
+    bool m_showNotification = true;
+    int m_defaultWindowSize = 15;
+    bool m_rememberSettings = true;
 
     /* Bayer frame for noise profiling */
     uint16_t *m_bayer = nullptr;

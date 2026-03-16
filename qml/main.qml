@@ -103,6 +103,15 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 0
 
+            /* Settings gear button */
+            Rectangle {
+                width: 36; height: 40; color: settingsGearMA.containsMouse ? "#2a2a2a" : "transparent"
+                Text { anchors.centerIn: parent; text: "\u2699"; color: "#888"; font.pixelSize: 16 }
+                MouseArea { id: settingsGearMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: settingsPanel.open()
+                }
+            }
+
             Repeater {
                 model: [
                     { icon: "\u2013", hoverColor: "#2a2a2a", action: "min" },
@@ -1064,6 +1073,9 @@ ApplicationWindow {
     Shortcut { sequence: "Escape"; onActivated: { if (backend.processing) backend.cancelDenoise() } }
     Shortcut { sequence: "Ctrl+H"; onActivated: root.showHub = true }
     Shortcut { sequence: "Space"; onActivated: { if (backend.hasDenoised) backend.showDenoised = !backend.showDenoised } }
+    Shortcut { sequence: "Ctrl+,"; onActivated: settingsPanel.open() }
+
+    SettingsPanel { id: settingsPanel }
 
     SplashScreen {
         id: splashScreen
