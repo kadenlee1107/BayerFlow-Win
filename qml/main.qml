@@ -1093,8 +1093,10 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+H"; onActivated: root.showHub = true }
     Shortcut { sequence: "Space"; onActivated: { if (backend.hasDenoised) backend.showDenoised = !backend.showDenoised } }
     Shortcut { sequence: "Ctrl+,"; onActivated: settingsPanel.open() }
+    Shortcut { sequence: "Ctrl+Shift+L"; onActivated: licenseDialog.open() }
 
     SettingsPanel { id: settingsPanel }
+    LicenseDialog { id: licenseDialog }
 
     SplashScreen {
         id: splashScreen

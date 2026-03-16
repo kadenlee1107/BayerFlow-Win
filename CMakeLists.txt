@@ -149,6 +149,7 @@ if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND)
         qml/main.cpp
         qml/Backend.cpp
         qml/CubeLUT.cpp
+        qml/tweetnacl.c
     )
     target_link_libraries(bayerflow_qml bayerflow_core Qt6::Quick Qt6::QuickControls2 Qt6::Qml)
 

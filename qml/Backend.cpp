@@ -750,21 +750,82 @@ QVariantMap Backend::computeHistogram()
     return result;
 }
 
-/* ---- Licensing ---- */
+/* ---- Licensing (Ed25519 via TweetNaCl) ---- */
+
+extern "C" {
+/* Stub for TweetNaCl — we only use verify, not keygen */
+void randombytes(unsigned char *buf, unsigned long long len) {
+    (void)buf; (void)len;  /* Never called — we don't generate keys */
+}
+#include "tweetnacl.h"
+}
+
+/* Public key for license verification (same as Mac LicenseManager.swift) */
+static const char *g_pubKeyHex = "e2c8b6a800342c7633dc086c9dbb80bc7f25a309a5b17f09652c18baf0e1fcf0";
+
+static bool hexToBytes(const char *hex, unsigned char *out, int len) {
+    for (int i = 0; i < len; i++) {
+        unsigned int byte;
+        if (sscanf(hex + i * 2, "%02x", &byte) != 1) return false;
+        out[i] = (unsigned char)byte;
+    }
+    return true;
+}
+
+static bool verifyEd25519(const QByteArray &signature, const QByteArray &message, const unsigned char *pubKey) {
+    if (signature.size() != 64) return false;
+
+    /* TweetNaCl's crypto_sign_open expects: signed_message = signature(64) + message
+     * It verifies and writes the message to 'out' if valid */
+    QByteArray signedMsg = signature + message;
+    QByteArray out(signedMsg.size(), 0);
+    unsigned long long outLen = 0;
+
+    int result = crypto_sign_open(
+        (unsigned char *)out.data(), &outLen,
+        (const unsigned char *)signedMsg.constData(), signedMsg.size(),
+        pubKey);
+
+    return result == 0;
+}
 
 bool Backend::activateLicense(const QString &email, const QString &key)
 {
-    /* TODO: Ed25519 signature verification against public key
-     * For now, accept any non-empty key as valid (placeholder) */
     if (email.isEmpty() || key.isEmpty()) return false;
 
+    QString trimmedKey = key.trimmed();
+    QString trimmedEmail = email.toLower().trimmed();
+
+    /* Decode Base64 license key → 64-byte signature */
+    QByteArray keyData = QByteArray::fromBase64(trimmedKey.toUtf8());
+    if (keyData.size() < 64) {
+        setStatus("Invalid license key format");
+        return false;
+    }
+    QByteArray signature = keyData.left(64);
+    QByteArray emailBytes = trimmedEmail.toUtf8();
+
+    /* Load public key */
+    unsigned char pubKey[32];
+    if (!hexToBytes(g_pubKeyHex, pubKey, 32)) {
+        setStatus("Internal error: invalid public key");
+        return false;
+    }
+
+    /* Verify Ed25519 signature */
+    if (!verifyEd25519(signature, emailBytes, pubKey)) {
+        setStatus("Invalid license key — check email and key");
+        return false;
+    }
+
+    /* Valid — save to Registry */
     QSettings settings("BayerFlow", "BayerFlow");
     settings.setValue("isLicensed", true);
-    settings.setValue("licenseEmail", email);
-    settings.setValue("licenseKey", key);
+    settings.setValue("licenseEmail", trimmedEmail);
+    settings.setValue("licenseKey", trimmedKey);
     m_isLicensed = true;
     emit licenseChanged();
-    setStatus("License activated for " + email);
+    setStatus("License activated for " + trimmedEmail);
     return true;
 }
 
