@@ -63,7 +63,7 @@ Item {
             break
         case 2:
             stepLabel = "Browse camera formats..."
-            /* TODO: animate carousel rotation */
+            /* Carousel auto-rotates via FormatHub's built-in animation */
             stepTimer.interval = 3000; stepTimer.start()
             break
         case 3:

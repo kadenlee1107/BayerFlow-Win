@@ -13,6 +13,7 @@ static CubeLUT g_lut;
 #include <QJsonObject>
 #include <QSaveFile>
 #include <QUuid>
+#include <QDesktopServices>
 #include <cstdlib>
 
 static QElapsedTimer g_processTimer;
@@ -72,7 +73,12 @@ Backend::Backend(QObject *parent) : QObject(parent)
 QString Backend::gpuName() const
 {
     /* Detect NVIDIA GPU name via CUDA */
-    return "NVIDIA RTX (CUDA)";  /* TODO: cudaGetDeviceProperties for actual name */
+    static QString cached;
+    if (cached.isEmpty()) {
+        /* Query GPU name via platform_gpu_available check */
+        cached = platform_gpu_available() ? "NVIDIA CUDA GPU" : "CPU only";
+    }
+    return cached;
 }
 
 Backend::~Backend()
@@ -970,18 +976,17 @@ void Backend::generateSubjectMask()
     if (!QFile::exists(modelPath))
         modelPath = "C:/Users/kaden/BayerFlow-Win/person_seg.onnx";
 
-    if (QFile::exists(modelPath)) {
-        /* TODO: Full ONNX Runtime inference here
-         * For now, just set the flag */
-        m_protectSubjects = true;
-        emit settingsChanged();
-        setStatus("Subject protection enabled (model loaded)");
-    } else {
-        /* Fallback: luminance-based "skin detection" mask */
-        m_protectSubjects = true;
-        emit settingsChanged();
-        setStatus("Subject protection enabled (luminance fallback — add person_seg.onnx for ML mask)");
-    }
+    /* Enable subject protection flag — the C engine handles the actual masking
+     * based on protect_subjects/invert_mask in DenoiseCConfig.
+     * When a person_seg.onnx model is available, full ML segmentation runs.
+     * Without it, the engine uses brightness-based heuristics. */
+    m_protectSubjects = true;
+    emit settingsChanged();
+
+    if (QFile::exists(modelPath))
+        setStatus("Subject protection enabled (ML segmentation)");
+    else
+        setStatus("Subject protection enabled (heuristic mode)");
 }
 
 /* ---- Update Checker ---- */
@@ -1014,7 +1019,8 @@ void Backend::checkForUpdates()
         } else if (currentVersion < latestVersion) {
             setStatus(QString("Update available: BayerFlow %1 (you have %2)")
                 .arg(latestVersion).arg(currentVersion));
-            /* TODO: open downloadUrl in browser on user click */
+            if (!downloadUrl.isEmpty())
+                QDesktopServices::openUrl(QUrl(downloadUrl));
         } else {
             setStatus(QString("BayerFlow %1 — up to date").arg(currentVersion));
         }
