@@ -5,6 +5,10 @@
 #include <QRegularExpression>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 #include <cstdlib>
 
 static QElapsedTimer g_processTimer;
@@ -511,6 +515,125 @@ void Backend::processNextQueueItem()
 void Backend::cancelQueue()
 {
     m_cancel.store(true);
+}
+
+/* ---- Watch Folder ---- */
+
+static const QStringList g_watchExts = {"mov", "braw", "dng", "ari", "r3d", "crm", "mxf", "nraw"};
+
+void Backend::startWatchFolder(const QString &folderPath)
+{
+    stopWatchFolder();
+    m_watchPath = folderPath;
+
+    /* Snapshot existing files */
+    QDir dir(folderPath);
+    m_knownFiles.clear();
+    for (const QFileInfo &fi : dir.entryInfoList(QDir::Files)) {
+        if (g_watchExts.contains(fi.suffix().toLower()))
+            m_knownFiles.append(fi.fileName());
+    }
+
+    m_watcher = new QFileSystemWatcher(this);
+    m_watcher->addPath(folderPath);
+    connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, &Backend::onWatchDirChanged);
+
+    m_watchDebounce = new QTimer(this);
+    m_watchDebounce->setSingleShot(true);
+    m_watchDebounce->setInterval(2000);  /* 2s debounce for file copy */
+    connect(m_watchDebounce, &QTimer::timeout, this, [this]() {
+        QDir dir(m_watchPath);
+        QStringList current;
+        for (const QFileInfo &fi : dir.entryInfoList(QDir::Files)) {
+            if (g_watchExts.contains(fi.suffix().toLower()))
+                current.append(fi.fileName());
+        }
+        /* Find new files */
+        for (const QString &f : current) {
+            if (!m_knownFiles.contains(f)) {
+                QString fullPath = m_watchPath + "/" + f;
+                /* Check file is stable (not still copying) */
+                QFileInfo fi(fullPath);
+                qint64 size1 = fi.size();
+                QThread::msleep(500);
+                fi.refresh();
+                qint64 size2 = fi.size();
+                if (size1 == size2 && size1 > 0) {
+                    QString outPath = fullPath;
+                    int dot = outPath.lastIndexOf('.');
+                    if (dot > 0) outPath.insert(dot, "_denoised");
+                    addToQueue(fullPath, outPath);
+                }
+            }
+        }
+        m_knownFiles = current;
+    });
+
+    m_watching = true;
+    emit watchChanged();
+}
+
+void Backend::stopWatchFolder()
+{
+    if (m_watcher) { delete m_watcher; m_watcher = nullptr; }
+    if (m_watchDebounce) { delete m_watchDebounce; m_watchDebounce = nullptr; }
+    m_watching = false;
+    m_watchPath.clear();
+    m_knownFiles.clear();
+    emit watchChanged();
+}
+
+void Backend::onWatchDirChanged(const QString &)
+{
+    if (m_watchDebounce) m_watchDebounce->start();  /* restart debounce */
+}
+
+/* ---- Session Persistence (crash recovery) ---- */
+
+static QString sessionsDir()
+{
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/Sessions";
+    QDir().mkpath(dir);
+    return dir;
+}
+
+void Backend::persistSession(const QString &sessionId, const QVariantMap &state)
+{
+    QString path = sessionsDir() + "/" + sessionId + ".json";
+    QJsonDocument doc = QJsonDocument::fromVariant(state);
+    QSaveFile file(path);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(doc.toJson(QJsonDocument::Compact));
+        file.commit();
+    }
+}
+
+void Backend::deletePersistedSession(const QString &sessionId)
+{
+    QString path = sessionsDir() + "/" + sessionId + ".json";
+    QFile::remove(path);
+}
+
+QVariantList Backend::loadPersistedSessions()
+{
+    QVariantList result;
+    QDir dir(sessionsDir());
+    for (const QString &f : dir.entryList({"*.json"}, QDir::Files)) {
+        QFile file(dir.absoluteFilePath(f));
+        if (!file.open(QIODevice::ReadOnly)) continue;
+        QJsonParseError err;
+        QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError) continue;
+        result.append(doc.toVariant());
+    }
+    return result;
+}
+
+void Backend::deleteAllPersistedSessions()
+{
+    QDir dir(sessionsDir());
+    for (const QString &f : dir.entryList({"*.json"}, QDir::Files))
+        QFile::remove(dir.absoluteFilePath(f));
 }
 
 void Backend::setTrainingConsent(bool v)

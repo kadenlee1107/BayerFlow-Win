@@ -17,6 +17,8 @@ ApplicationWindow {
 
     property bool showSplash: true
     property bool showHub: true
+    property bool showRecoveryDialog: false
+    property var recoveredSessions: []
 
     /* ---- Resize handles ---- */
     MouseArea {
@@ -273,6 +275,8 @@ ApplicationWindow {
             if (sessions[i].id === tabId) { idx = i; break }
         }
         if (idx < 0) return
+        /* Clean up persisted session on normal close */
+        backend.deletePersistedSession(tabId.toString())
         sessions.splice(idx, 1)
         if (activeTabId === tabId) {
             var newIdx = Math.min(idx, sessions.length - 1)
@@ -781,6 +785,50 @@ ApplicationWindow {
                     }
                 }
             }
+
+            /* ======== WATCH FOLDER ======== */
+            Rectangle {
+                width: parent.width; height: 70
+                color: "#151515"; radius: 8
+                border.color: "#222222"; border.width: 1
+
+                Text {
+                    x: 16; y: 12
+                    text: "WATCH FOLDER"
+                    color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2
+                }
+
+                Row {
+                    x: 16; y: 36; spacing: 8
+
+                    StyledButton {
+                        label: backend.isWatching ? "Stop" : "Choose Folder..."
+                        width: backend.isWatching ? 60 : 120; height: 24
+                        onClicked: {
+                            if (backend.isWatching) backend.stopWatchFolder()
+                            else watchFolderDialog.open()
+                        }
+                    }
+
+                    /* Green dot + folder name when watching */
+                    Rectangle {
+                        visible: backend.isWatching
+                        width: watchLabel.width + 22; height: 24; radius: 4
+                        color: "#0a1a0a"; border.color: "#1a3a1a"; border.width: 1
+                        Row {
+                            anchors.centerIn: parent; spacing: 6
+                            Rectangle { width: 6; height: 6; radius: 3; color: "#4caf50"; anchors.verticalCenter: parent.verticalCenter }
+                            Text { id: watchLabel; text: backend.watchFolderPath.split(/[/\\]/).pop(); color: "#8c8"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                    }
+
+                    Text {
+                        visible: !backend.isWatching
+                        text: "Auto-queue new files dropped in a folder"
+                        color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+            }
         }
     }
 
@@ -814,6 +862,11 @@ ApplicationWindow {
         onAccepted: backend.outputPath = selectedFile
     }
 
+    FolderDialog {
+        id: watchFolderDialog; title: "Select Watch Folder"
+        onAccepted: backend.startWatchFolder(selectedFolder.toString().replace("file:///", ""))
+    }
+
     /* ---- Preview reload ---- */
     Connections {
         target: backend
@@ -844,6 +897,71 @@ ApplicationWindow {
         if (backend.isFirstLaunch) {
             console.log("BF: showing onboarding")
             onboardingPopup.visible = true
+        }
+
+        /* Check for crash-recovered sessions */
+        var saved = backend.loadPersistedSessions()
+        if (saved.length > 0) {
+            root.recoveredSessions = saved
+            root.showRecoveryDialog = true
+        }
+    }
+
+    /* Auto-save session state every 5 seconds */
+    Timer {
+        interval: 5000; running: true; repeat: true
+        onTriggered: {
+            var state = backend.saveSessionState()
+            state["sessionId"] = root.activeTabId.toString()
+            state["label"] = root.sessions.length > 0 ? root.sessions[0].label : "Untitled"
+            state["showHub"] = root.showHub
+            state["timestamp"] = new Date().toISOString()
+            backend.persistSession(root.activeTabId.toString(), state)
+        }
+    }
+
+    /* Recovery dialog */
+    Dialog {
+        id: recoveryDialog
+        visible: root.showRecoveryDialog && !root.showSplash
+        anchors.centerIn: parent
+        width: 400; height: 180
+        title: "Recover Sessions?"
+        modal: true
+        standardButtons: Dialog.NoButton
+
+        Column {
+            anchors.fill: parent; spacing: 12
+            Text {
+                text: root.recoveredSessions.length + " session(s) from a previous run were found.\nWould you like to restore them?"
+                color: "#d4d4d4"; font.pixelSize: 13; wrapMode: Text.Wrap; width: parent.width
+            }
+            Row {
+                spacing: 12; anchors.horizontalCenter: parent.horizontalCenter
+                StyledButton {
+                    label: "Recover"; width: 100; height: 32
+                    onClicked: {
+                        for (var i = 0; i < root.recoveredSessions.length; i++) {
+                            var s = root.recoveredSessions[i]
+                            if (i === 0) {
+                                backend.restoreSessionState(s)
+                                if (s.showHub !== undefined) root.showHub = s.showHub
+                            } else {
+                                root.addTab()
+                                backend.restoreSessionState(s)
+                            }
+                        }
+                        root.showRecoveryDialog = false
+                    }
+                }
+                StyledButton {
+                    label: "Discard"; width: 100; height: 32
+                    onClicked: {
+                        backend.deleteAllPersistedSessions()
+                        root.showRecoveryDialog = false
+                    }
+                }
+            }
         }
     }
 

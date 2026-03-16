@@ -4,6 +4,9 @@
 #include <QImage>
 #include <QThread>
 #include <QVariantMap>
+#include <QFileSystemWatcher>
+#include <QTimer>
+#include <QStringList>
 #include <atomic>
 
 extern "C" {
@@ -45,6 +48,10 @@ class Backend : public QObject {
     /* First launch + training consent */
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
+
+    /* Watch folder */
+    Q_PROPERTY(bool isWatching READ isWatching NOTIFY watchChanged)
+    Q_PROPERTY(QString watchFolderPath READ watchFolderPath NOTIFY watchChanged)
 
     /* Batch queue */
     Q_PROPERTY(QVariantList queueModel READ queueModel NOTIFY queueChanged)
@@ -106,12 +113,24 @@ public slots:
     Q_INVOKABLE QVariantMap saveSessionState();
     Q_INVOKABLE void restoreSessionState(const QVariantMap &state);
 
+    /* Session persistence (crash recovery) */
+    Q_INVOKABLE void persistSession(const QString &sessionId, const QVariantMap &state);
+    Q_INVOKABLE void deletePersistedSession(const QString &sessionId);
+    Q_INVOKABLE QVariantList loadPersistedSessions();
+    Q_INVOKABLE void deleteAllPersistedSessions();
+
     /* Batch queue */
     Q_INVOKABLE void addToQueue(const QString &inputPath, const QString &outputPath);
     Q_INVOKABLE void removeFromQueue(int index);
     Q_INVOKABLE void clearQueue();
     Q_INVOKABLE void startQueue();
     Q_INVOKABLE void cancelQueue();
+
+    /* Watch folder */
+    Q_INVOKABLE void startWatchFolder(const QString &folderPath);
+    Q_INVOKABLE void stopWatchFolder();
+    bool isWatching() const { return m_watching; }
+    QString watchFolderPath() const { return m_watchPath; }
 
 signals:
     void inputPathChanged();
@@ -125,6 +144,7 @@ signals:
     void trainingConsentChanged();
     void presetChanged();
     void queueChanged();
+    void watchChanged();
     void previewLoadingChanged();
     void previewFrameChanged();
     void previewModeChanged();
@@ -190,6 +210,14 @@ private:
     bool isQueueRunning() const { return m_queueRunning; }
     int queueCount() const { return m_queue.size(); }
     void processNextQueueItem();
+
+    /* Watch folder */
+    QFileSystemWatcher *m_watcher = nullptr;
+    QTimer *m_watchDebounce = nullptr;
+    QString m_watchPath;
+    QStringList m_knownFiles;
+    bool m_watching = false;
+    void onWatchDirChanged(const QString &path);
 
     /* Worker thread */
     QThread *m_thread = nullptr;
