@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setApplicationName("BayerFlow");
     app.setOrganizationName("BayerFlow");
-    app.setWindowIcon(QIcon("C:/Users/kaden/BayerFlow-Win/qml/logo.png"));
+    app.setWindowIcon(QIcon("C:/Users/kaden/BayerFlow-Win/qml/icon.png"));
 
     Backend backend;
 
