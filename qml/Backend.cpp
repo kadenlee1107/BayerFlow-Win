@@ -1,6 +1,7 @@
 #include "Backend.h"
 #include <QUrl>
 #include <QSettings>
+#include <QDir>
 #include <cstdlib>
 
 extern "C" {
@@ -8,10 +9,12 @@ void noise_profile_from_patch(const uint16_t *bayer, int bayer_w, int bayer_h,
                                int px, int py, int pw, int ph, CNoiseProfile *out);
 uint16_t *noise_profile_read_frame(const char *path, int frame_index,
                                    int *out_width, int *out_height);
+int denoise_preview_frame(const char *input_path, int frame_index,
+                           const DenoiseCConfig *cfg, const char *temp_output_path);
 }
 
 /* Simple Bayer→RGB for preview */
-static QImage bayerToQImage(const uint16_t *bayer, int w, int h)
+QImage Backend::bayerToQImage(const uint16_t *bayer, int w, int h)
 {
     QImage img(w / 2, h / 2, QImage::Format_RGB888);
     for (int y = 0; y < h - 1; y += 2) {
@@ -48,7 +51,17 @@ void Backend::setInputPath(const QString &p)
     if (path.startsWith("file:///")) path = QUrl(path).toLocalFile();
     if (m_inputPath == path) return;
     m_inputPath = path;
+    m_denoisedImage = QImage();  /* clear old denoised */
+    m_showDenoised = false;
+
+    /* Probe frame count */
+    m_frameCount = denoise_probe_frame_count(path.toLocal8Bit().data());
+    if (m_frameCount <= 0) m_frameCount = 0;
+    m_previewFrameIndex = m_frameCount / 2;  /* default to middle frame */
+
     emit inputPathChanged();
+    emit previewFrameChanged();
+    emit previewModeChanged();
 
     /* Auto-fill output */
     QString out = path;
@@ -72,18 +85,29 @@ void Backend::setStatus(const QString &s)
     emit statusChanged();
 }
 
+QImage Backend::previewImage() const
+{
+    if (m_showDenoised && !m_denoisedImage.isNull())
+        return m_denoisedImage;
+    return m_originalImage;
+}
+
 void Backend::loadPreview()
 {
     if (m_inputPath.isEmpty()) { setStatus("Select an input file first"); return; }
     setStatus("Loading preview...");
 
     free(m_bayer);
-    m_bayer = noise_profile_read_frame(m_inputPath.toLocal8Bit().data(), 0, &m_bayerW, &m_bayerH);
+    m_bayer = noise_profile_read_frame(m_inputPath.toLocal8Bit().data(),
+                                        m_previewFrameIndex, &m_bayerW, &m_bayerH);
     if (!m_bayer) { setStatus("Failed to decode frame"); return; }
 
-    m_previewImage = bayerToQImage(m_bayer, m_bayerW, m_bayerH);
+    m_originalImage = bayerToQImage(m_bayer, m_bayerW, m_bayerH);
+    m_previewImage = m_originalImage;
     emit previewChanged();
-    setStatus(QString("%1x%2 loaded — drag to select noise patch").arg(m_bayerW).arg(m_bayerH));
+    emit originalPreviewReady();
+    setStatus(QString("%1x%2 frame %3 — drag to select noise patch")
+        .arg(m_bayerW).arg(m_bayerH).arg(m_previewFrameIndex));
 }
 
 void Backend::profileNoise(int x, int y, int w, int h)
@@ -105,6 +129,75 @@ void Backend::profileNoise(int x, int y, int w, int h)
     setStatus(QString("Profiled: BL=%1  SG=%2  RN=%3  sigma=%4")
         .arg(p.black_level, 0, 'f', 1).arg(p.shot_gain, 0, 'f', 3)
         .arg(p.read_noise, 0, 'f', 1).arg(p.sigma, 0, 'f', 1));
+}
+
+void Backend::generateDenoisedPreview()
+{
+    if (m_inputPath.isEmpty()) { setStatus("Select an input file first"); return; }
+    if (m_previewLoading) return;
+
+    m_previewLoading = true;
+    emit previewLoadingChanged();
+    setStatus("Generating denoised preview...");
+
+    QThread *t = QThread::create([this]() {
+        QByteArray inPath = m_inputPath.toLocal8Bit();
+
+        /* Build config */
+        DenoiseCConfig cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.window_size          = m_windowSize > 5 ? 5 : m_windowSize;  /* small window for speed */
+        cfg.strength             = m_strength;
+        cfg.spatial_strength     = m_spatialStrength;
+        cfg.temporal_filter_mode = m_tfMode;
+        cfg.use_cnn_postfilter   = 1;
+        cfg.auto_dark_frame      = 1;
+        cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
+        cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
+        cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
+
+        /* Output to temp file */
+        QString tempPath = QDir::tempPath() + "/bayerflow_preview_" +
+            QString::number(QDateTime::currentMSecsSinceEpoch()) + ".mov";
+        QByteArray tempPathBytes = tempPath.toLocal8Bit();
+
+        int result = denoise_preview_frame(inPath.data(), m_previewFrameIndex,
+                                            &cfg, tempPathBytes.data());
+
+        if (result == DENOISE_OK) {
+            /* Read the denoised frame from the temp file */
+            int w = 0, h = 0;
+            uint16_t *denoised = noise_profile_read_frame(tempPathBytes.data(), 0, &w, &h);
+            if (denoised) {
+                m_denoisedImage = bayerToQImage(denoised, w, h);
+                free(denoised);
+                m_showDenoised = true;
+
+                QMetaObject::invokeMethod(this, [this]() {
+                    emit previewChanged();
+                    emit denoisedPreviewReady();
+                    emit previewModeChanged();
+                    setStatus(QString("Preview ready — click Before/After to compare"));
+                }, Qt::QueuedConnection);
+            } else {
+                QMetaObject::invokeMethod(this, [this]() {
+                    setStatus("Preview: failed to read denoised frame");
+                }, Qt::QueuedConnection);
+            }
+        } else {
+            QMetaObject::invokeMethod(this, [this, result]() {
+                setStatus(QString("Preview failed (error %1)").arg(result));
+            }, Qt::QueuedConnection);
+        }
+
+        /* Cleanup temp file */
+        QFile::remove(tempPath);
+
+        m_previewLoading = false;
+        QMetaObject::invokeMethod(this, "previewLoadingChanged", Qt::QueuedConnection);
+    });
+
+    t->start();
 }
 
 int Backend::progressCB(int current, int total, void *ctx)
@@ -129,7 +222,6 @@ void Backend::startDenoise()
     emit progressChanged();
     setStatus("Starting...");
 
-    /* Run in a lambda on QThread */
     m_thread = QThread::create([this]() {
         QByteArray inPath = m_inputPath.toLocal8Bit();
         QByteArray outPath = m_outputPath.toLocal8Bit();

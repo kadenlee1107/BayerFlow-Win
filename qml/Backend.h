@@ -38,6 +38,14 @@ class Backend : public QObject {
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
 
+    /* Denoised preview */
+    Q_PROPERTY(bool isPreviewLoading READ isPreviewLoading NOTIFY previewLoadingChanged)
+    Q_PROPERTY(int previewFrameIndex MEMBER m_previewFrameIndex NOTIFY previewFrameChanged)
+    Q_PROPERTY(int frameCount READ frameCount NOTIFY inputPathChanged)
+    Q_PROPERTY(bool showDenoised MEMBER m_showDenoised NOTIFY previewModeChanged)
+    Q_PROPERTY(bool hasOriginal READ hasOriginal NOTIFY originalPreviewReady)
+    Q_PROPERTY(bool hasDenoised READ hasDenoised NOTIFY denoisedPreviewReady)
+
 public:
     explicit Backend(QObject *parent = nullptr);
     ~Backend();
@@ -47,7 +55,7 @@ public:
     bool processing() const { return m_processing; }
     int progressPercent() const { return m_progressPercent; }
     QString statusText() const { return m_statusText; }
-    QImage previewImage() const { return m_previewImage; }
+    QImage previewImage() const;  /* returns original or denoised based on m_showDenoised */
 
     float noiseBlackLevel() const { return m_noiseBlackLevel; }
     float noiseShotGain() const { return m_noiseShotGain; }
@@ -59,14 +67,20 @@ public:
     bool trainingConsent() const { return m_trainingConsent; }
     void setTrainingConsent(bool v);
 
+    bool isPreviewLoading() const { return m_previewLoading; }
+    int frameCount() const { return m_frameCount; }
+    bool hasOriginal() const { return !m_originalImage.isNull(); }
+    bool hasDenoised() const { return !m_denoisedImage.isNull(); }
+
     void setInputPath(const QString &p);
     void setOutputPath(const QString &p);
 
 public slots:
     void loadPreview();
-    void profileNoise(int x, int y, int w, int h);  /* image coords from QML */
+    void profileNoise(int x, int y, int w, int h);
     void startDenoise();
     void cancelDenoise();
+    void generateDenoisedPreview();
     Q_INVOKABLE void markOnboardingDone();
 
 signals:
@@ -79,6 +93,11 @@ signals:
     void noiseProfileChanged();
     void settingsChanged();
     void trainingConsentChanged();
+    void previewLoadingChanged();
+    void previewFrameChanged();
+    void previewModeChanged();
+    void originalPreviewReady();
+    void denoisedPreviewReady();
 
 private:
     QString m_inputPath, m_outputPath;
@@ -106,10 +125,19 @@ private:
     uint16_t *m_bayer = nullptr;
     int m_bayerW = 0, m_bayerH = 0;
 
+    /* Preview */
+    QImage m_originalImage;
+    QImage m_denoisedImage;
+    bool m_previewLoading = false;
+    int m_previewFrameIndex = 0;
+    int m_frameCount = 0;
+    bool m_showDenoised = false;
+
     /* Worker thread */
     QThread *m_thread = nullptr;
     std::atomic<bool> m_cancel{false};
 
     static int progressCB(int current, int total, void *ctx);
     void setStatus(const QString &s);
+    static QImage bayerToQImage(const uint16_t *bayer, int w, int h);
 };

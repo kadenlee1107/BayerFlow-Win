@@ -44,6 +44,23 @@ ApplicationWindow {
         /* Subtle bottom border */
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#1a1a1a" }
 
+        /* Back to Hub button */
+        Rectangle {
+            anchors.left: parent.left; anchors.leftMargin: 140
+            anchors.verticalCenter: parent.verticalCenter
+            width: 70; height: 26; radius: 4
+            color: hubBackMA.containsMouse ? "#333" : "#222"
+            visible: !root.showHub
+            Row {
+                anchors.centerIn: parent; spacing: 4
+                Text { text: "\u2190"; color: "#e87a20"; font.pixelSize: 13 }
+                Text { text: "Hub"; color: "#aaa"; font.pixelSize: 11 }
+            }
+            MouseArea { id: hubBackMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                onClicked: root.showHub = true
+            }
+        }
+
         MouseArea {
             anchors.fill: parent
             property point clickPos
@@ -199,27 +216,7 @@ ApplicationWindow {
         }
     }
 
-    /* ---- Back to Hub button ---- */
-    Rectangle {
-        anchors.left: parent.left
-        anchors.leftMargin: 14
-        anchors.top: titleBar.bottom
-        anchors.topMargin: 10
-        width: 80; height: 28; radius: 4; z: 5
-        color: backMA.containsMouse ? "#333" : "#222"
-        visible: !root.showHub
-        opacity: !root.showHub ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 200 } }
-
-        Row {
-            anchors.centerIn: parent; spacing: 4
-            Text { text: "\u2190"; color: "#e87a20"; font.pixelSize: 14 }
-            Text { text: "Hub"; color: "#aaa"; font.pixelSize: 12 }
-        }
-        MouseArea { id: backMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-            onClicked: root.showHub = true
-        }
-    }
+    /* ---- Back to Hub button (inside title bar) ---- */
 
     /* ---- Denoise Content ---- */
     Flickable {
@@ -276,17 +273,64 @@ ApplicationWindow {
             Card {
                 width: parent.width; height: 320; title: ""
 
+                /* ---- Preview header row ---- */
                 Row {
                     anchors.top: parent.top; anchors.topMargin: 0
-                    width: parent.width; spacing: 0
-                    Text { text: "PREVIEW"; color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2 }
-                    Item { width: parent.width - 180; height: 1 }
-                    StyledButton { label: "Load Frame"; width: 100; height: 28; onClicked: backend.loadPreview() }
+                    width: parent.width; spacing: 6
+                    Text { text: "PREVIEW"; color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2; anchors.verticalCenter: parent.verticalCenter }
+                    Item { Layout.fillWidth: true; width: 10; height: 1 }
+
+                    /* Before / After toggle */
+                    Rectangle {
+                        visible: backend.hasDenoised
+                        width: beforeAfterRow.width + 8; height: 28; radius: 4
+                        color: "#2a2a2a"; border.color: "#3a3a3a"; border.width: 1
+                        anchors.verticalCenter: parent.verticalCenter
+                        Row {
+                            id: beforeAfterRow; anchors.centerIn: parent; spacing: 2
+                            Rectangle {
+                                width: 52; height: 22; radius: 3
+                                color: !backend.showDenoised ? "#e87a20" : "transparent"
+                                Text { anchors.centerIn: parent; text: "Before"; color: !backend.showDenoised ? "#fff" : "#888"; font.pixelSize: 10; font.weight: Font.Medium }
+                                MouseArea { anchors.fill: parent; onClicked: { backend.showDenoised = false } }
+                            }
+                            Rectangle {
+                                width: 46; height: 22; radius: 3
+                                color: backend.showDenoised ? "#e87a20" : "transparent"
+                                Text { anchors.centerIn: parent; text: "After"; color: backend.showDenoised ? "#fff" : "#888"; font.pixelSize: 10; font.weight: Font.Medium }
+                                MouseArea { anchors.fill: parent; onClicked: { backend.showDenoised = true } }
+                            }
+                        }
+                    }
+
+                    StyledButton {
+                        label: backend.isPreviewLoading ? "Denoising..." : "Preview Denoise"
+                        width: 120; height: 28
+                        enabled: !backend.isPreviewLoading && backend.inputPath !== ""
+                        onClicked: backend.generateDenoisedPreview()
+                    }
+                    StyledButton { label: "Load Frame"; width: 80; height: 28; onClicked: backend.loadPreview() }
+                }
+
+                /* ---- Frame scrubber ---- */
+                Row {
+                    visible: backend.frameCount > 1
+                    anchors.top: parent.top; anchors.topMargin: 30
+                    width: parent.width; spacing: 8
+                    Text { text: "Frame:"; color: "#aaa"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                    Slider {
+                        id: frameScrubber
+                        width: parent.width - 120; height: 20
+                        from: 0; to: Math.max(0, backend.frameCount - 1)
+                        value: backend.previewFrameIndex; stepSize: 1
+                        onMoved: { backend.previewFrameIndex = Math.round(value) }
+                    }
+                    Text { text: Math.round(frameScrubber.value) + " / " + backend.frameCount; color: "#888"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                 }
 
                 Rectangle {
-                    anchors.top: parent.top; anchors.topMargin: 36
-                    width: parent.width; height: parent.height - 48
+                    anchors.top: parent.top; anchors.topMargin: backend.frameCount > 1 ? 56 : 36
+                    width: parent.width; height: parent.height - (backend.frameCount > 1 ? 68 : 48)
                     color: "#0a0a0a"; radius: 6; clip: true
                     border.color: "#1a1a1a"; border.width: 1
 
@@ -465,6 +509,8 @@ ApplicationWindow {
     Connections {
         target: backend
         function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+        function onPreviewModeChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+        function onDenoisedPreviewReady() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
     }
 
     /* ---- Onboarding Popup (first launch) ---- */
