@@ -4,7 +4,10 @@
 #include <QDir>
 #include <QRegularExpression>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <cstdlib>
+
+static QElapsedTimer g_processTimer;
 
 extern "C" {
 void noise_profile_from_patch(const uint16_t *bayer, int bayer_w, int bayer_h,
@@ -218,7 +221,23 @@ int Backend::progressCB(int current, int total, void *ctx)
 {
     auto *self = static_cast<Backend *>(ctx);
     self->m_progressPercent = total > 0 ? current * 100 / total : 0;
-    self->m_statusText = QString("Frame %1 / %2").arg(current).arg(total);
+
+    /* Compute fps and ETA */
+    double elapsed = g_processTimer.elapsed() / 1000.0;
+    if (current > 0 && elapsed > 0.5) {
+        self->m_fps = current / elapsed;
+        int remaining = total - current;
+        double etaSec = remaining / self->m_fps;
+        int etaMin = (int)(etaSec / 60);
+        int etaS = (int)etaSec % 60;
+        self->m_etaText = QString("%1:%2 remaining").arg(etaMin).arg(etaS, 2, 10, QChar('0'));
+    } else {
+        self->m_fps = 0;
+        self->m_etaText = "Estimating...";
+    }
+
+    self->m_statusText = QString("Frame %1 / %2  •  %3 fps")
+        .arg(current).arg(total).arg(self->m_fps, 0, 'f', 1);
     QMetaObject::invokeMethod(self, "progressChanged", Qt::QueuedConnection);
     QMetaObject::invokeMethod(self, "statusChanged", Qt::QueuedConnection);
     return self->m_cancel.load() ? 1 : 0;
@@ -253,12 +272,15 @@ void Backend::startDenoise()
         cfg.temporal_filter_mode = m_tfMode;
         cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
         cfg.auto_dark_frame      = 1;
-        cfg.output_format        = 0;
+        cfg.output_format        = m_outputFormat;
+        cfg.start_frame          = m_startFrame;
+        cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
 
+        g_processTimer.start();
         int result = denoise_file(inPath.data(), outPath.data(), &cfg, progressCB, this);
 
         m_processing = false;
@@ -449,7 +471,9 @@ void Backend::processNextQueueItem()
         cfg.temporal_filter_mode = m_tfMode;
         cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
         cfg.auto_dark_frame      = 1;
-        cfg.output_format        = 0;
+        cfg.output_format        = m_outputFormat;
+        cfg.start_frame          = m_startFrame;
+        cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;

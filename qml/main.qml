@@ -516,7 +516,7 @@ ApplicationWindow {
                 width: parent.width; spacing: 10
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 155; title: "NOISE PROFILE"
+                    width: (parent.width - 10) / 2; height: 240; title: "NOISE PROFILE"
 
                     Grid {
                         anchors.top: parent.top; anchors.topMargin: 32
@@ -534,7 +534,7 @@ ApplicationWindow {
                 }
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 155; title: "SETTINGS"
+                    width: (parent.width - 10) / 2; height: 240; title: "SETTINGS"
 
                     Column {
                         anchors.top: parent.top; anchors.topMargin: 30
@@ -593,6 +593,32 @@ ApplicationWindow {
                             }
                             Text { text: backend.useCNN ? "ON (slower, better quality)" : "OFF (faster)"; color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                         }
+
+                        /* Frame range */
+                        Row {
+                            spacing: 8; width: parent.width
+                            Text { text: "Frames"; color: "#666"; font.pixelSize: 11; width: 45; anchors.verticalCenter: parent.verticalCenter }
+                            SpinBox { from: 0; to: Math.max(0, backend.frameCount - 1); value: backend.startFrame; width: 80; height: 26
+                                onValueModified: backend.startFrame = value
+                            }
+                            Text { text: "to"; color: "#555"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                            SpinBox { from: 0; to: backend.frameCount; value: backend.endFrame; width: 80; height: 26
+                                onValueModified: backend.endFrame = value
+                            }
+                            Text { text: backend.endFrame === 0 ? "(all)" : "(" + (backend.endFrame - backend.startFrame) + " frames)"; color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                        }
+
+                        /* Output format */
+                        Row {
+                            spacing: 8; width: parent.width
+                            Text { text: "Output"; color: "#666"; font.pixelSize: 11; width: 45; anchors.verticalCenter: parent.verticalCenter }
+                            ComboBox {
+                                model: ["Auto (match input)", "ProRes RAW", "DNG Sequence", "BRAW", "EXR Sequence"]
+                                currentIndex: backend.outputFormat
+                                onActivated: backend.outputFormat = currentIndex
+                                width: 160; height: 26
+                            }
+                        }
                     }
                 }
             }
@@ -650,10 +676,22 @@ ApplicationWindow {
                             }
                             Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                         }
-                        Text {
-                            anchors.centerIn: parent
-                            text: backend.processing ? backend.progressPercent + "%" : ""
-                            color: "#d4d4d4"; font.pixelSize: 13; font.family: "Cascadia Mono"
+                        Row {
+                            anchors.centerIn: parent; spacing: 16
+                            Text {
+                                text: backend.processing ? backend.progressPercent + "%" : ""
+                                color: "#d4d4d4"; font.pixelSize: 13; font.family: "Cascadia Mono"
+                            }
+                            Text {
+                                visible: backend.processing && backend.fpsValue > 0.01
+                                text: backend.fpsValue.toFixed(1) + " fps"
+                                color: "#888"; font.pixelSize: 11; font.family: "Cascadia Mono"
+                            }
+                            Text {
+                                visible: backend.processing && backend.etaText !== ""
+                                text: backend.etaText
+                                color: "#888"; font.pixelSize: 11
+                            }
                         }
                     }
                 }
@@ -810,6 +848,15 @@ ApplicationWindow {
     }
 
     /* ---- Splash Screen ---- */
+    /* ---- Keyboard Shortcuts ---- */
+    Shortcut { sequence: "Ctrl+T"; onActivated: root.addTab() }
+    Shortcut { sequence: "Ctrl+W"; onActivated: { if (root.sessions.length > 1) root.closeTab(root.activeTabId) } }
+    Shortcut { sequence: "Ctrl+O"; onActivated: inputDialog.open() }
+    Shortcut { sequence: "Ctrl+Shift+S"; onActivated: { if (!backend.processing) backend.startDenoise() } }
+    Shortcut { sequence: "Escape"; onActivated: { if (backend.processing) backend.cancelDenoise() } }
+    Shortcut { sequence: "Ctrl+H"; onActivated: root.showHub = true }
+    Shortcut { sequence: "Space"; onActivated: { if (backend.hasDenoised) backend.showDenoised = !backend.showDenoised } }
+
     SplashScreen {
         id: splashScreen
         visible: root.showSplash

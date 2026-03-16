@@ -36,6 +36,11 @@ class Backend : public QObject {
     Q_PROPERTY(int tfMode MEMBER m_tfMode NOTIFY settingsChanged)
     Q_PROPERTY(bool useCNN MEMBER m_useCNN NOTIFY settingsChanged)
     Q_PROPERTY(QString preset READ preset WRITE setPreset NOTIFY presetChanged)
+    Q_PROPERTY(int startFrame MEMBER m_startFrame NOTIFY settingsChanged)
+    Q_PROPERTY(int endFrame MEMBER m_endFrame NOTIFY settingsChanged)
+    Q_PROPERTY(int outputFormat MEMBER m_outputFormat NOTIFY settingsChanged)
+    Q_PROPERTY(QString etaText READ etaText NOTIFY progressChanged)
+    Q_PROPERTY(double fpsValue READ fpsValue NOTIFY progressChanged)
 
     /* First launch + training consent */
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
@@ -70,6 +75,9 @@ public:
     float noiseReadNoise() const { return m_noiseReadNoise; }
     float noiseSigma() const { return m_noiseSigma; }
     bool noiseProfileValid() const { return m_noiseValid; }
+
+    QString etaText() const { return m_etaText; }
+    double fpsValue() const { return m_fps; }
 
     bool isFirstLaunch() const { return m_isFirstLaunch; }
     bool trainingConsent() const { return m_trainingConsent; }
@@ -142,6 +150,14 @@ private:
     int m_tfMode = 2;
     bool m_useCNN = true;
     QString m_preset = "Strong";
+    int m_startFrame = 0;
+    int m_endFrame = 0;  /* 0 = all */
+    int m_outputFormat = 0;  /* 0=auto, 1=MOV, 2=DNG, 3=BRAW, 4=EXR */
+
+    /* ETA/fps tracking */
+    QString m_etaText;
+    double m_fps = 0;
+    qint64 m_processStartTime = 0;
 
     /* First launch + consent */
     bool m_isFirstLaunch = true;
