@@ -1,4 +1,7 @@
 #include "Backend.h"
+#include "CubeLUT.h"
+
+static CubeLUT g_lut;
 #include <QUrl>
 #include <QSettings>
 #include <QDir>
@@ -108,9 +111,15 @@ void Backend::setStatus(const QString &s)
 
 QImage Backend::previewImage() const
 {
-    if (m_showDenoised && !m_denoisedImage.isNull())
-        return m_denoisedImage;
-    return m_originalImage;
+    QImage img = (m_showDenoised && !m_denoisedImage.isNull()) ? m_denoisedImage : m_originalImage;
+
+    /* Apply LUT if enabled */
+    if (m_lutEnabled && g_lut.isValid() && !img.isNull()) {
+        QImage lutImg = img.copy();
+        g_lut.apply(lutImg, m_lutBlend);
+        return lutImg;
+    }
+    return img;
 }
 
 void Backend::loadPreview()
@@ -515,6 +524,33 @@ void Backend::processNextQueueItem()
 void Backend::cancelQueue()
 {
     m_cancel.store(true);
+}
+
+/* ---- LUT ---- */
+
+void Backend::loadLUT(const QString &path)
+{
+    QString p = path;
+    if (p.startsWith("file:///")) p = QUrl(p).toLocalFile();
+    g_lut = CubeLUT::load(p);
+    if (g_lut.isValid()) {
+        m_lutPath = p;
+        m_lutName = g_lut.title;
+        m_lutEnabled = true;
+        emit lutChanged();
+        /* Re-apply to preview if visible */
+        emit previewChanged();
+    }
+}
+
+void Backend::clearLUT()
+{
+    g_lut = CubeLUT();
+    m_lutPath.clear();
+    m_lutName.clear();
+    m_lutEnabled = false;
+    emit lutChanged();
+    emit previewChanged();
 }
 
 /* ---- Watch Folder ---- */

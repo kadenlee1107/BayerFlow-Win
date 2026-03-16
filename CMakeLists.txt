@@ -148,6 +148,7 @@ if(Qt6Quick_FOUND AND Qt6QuickControls2_FOUND)
     add_executable(bayerflow_qml WIN32
         qml/main.cpp
         qml/Backend.cpp
+        qml/CubeLUT.cpp
     )
     target_link_libraries(bayerflow_qml bayerflow_core Qt6::Quick Qt6::QuickControls2 Qt6::Qml)
 

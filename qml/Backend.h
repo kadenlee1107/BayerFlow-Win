@@ -45,6 +45,11 @@ class Backend : public QObject {
     Q_PROPERTY(QString etaText READ etaText NOTIFY progressChanged)
     Q_PROPERTY(double fpsValue READ fpsValue NOTIFY progressChanged)
 
+    /* LUT preview */
+    Q_PROPERTY(bool lutEnabled MEMBER m_lutEnabled NOTIFY lutChanged)
+    Q_PROPERTY(float lutBlend MEMBER m_lutBlend NOTIFY lutChanged)
+    Q_PROPERTY(QString lutName READ lutName NOTIFY lutChanged)
+
     /* First launch + training consent */
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
@@ -129,6 +134,11 @@ public slots:
     /* Watch folder */
     Q_INVOKABLE void startWatchFolder(const QString &folderPath);
     Q_INVOKABLE void stopWatchFolder();
+
+    /* LUT */
+    Q_INVOKABLE void loadLUT(const QString &path);
+    Q_INVOKABLE void clearLUT();
+    QString lutName() const { return m_lutName; }
     bool isWatching() const { return m_watching; }
     QString watchFolderPath() const { return m_watchPath; }
 
@@ -145,6 +155,7 @@ signals:
     void presetChanged();
     void queueChanged();
     void watchChanged();
+    void lutChanged();
     void previewLoadingChanged();
     void previewFrameChanged();
     void previewModeChanged();
@@ -210,6 +221,12 @@ private:
     bool isQueueRunning() const { return m_queueRunning; }
     int queueCount() const { return m_queue.size(); }
     void processNextQueueItem();
+
+    /* LUT */
+    bool m_lutEnabled = false;
+    float m_lutBlend = 1.0f;
+    QString m_lutName;
+    QString m_lutPath;
 
     /* Watch folder */
     QFileSystemWatcher *m_watcher = nullptr;

@@ -515,6 +515,44 @@ ApplicationWindow {
                 }
             }
 
+            /* ======== LUT PREVIEW ======== */
+            Rectangle {
+                width: parent.width; height: 60
+                color: "#151515"; radius: 8; border.color: "#222"; border.width: 1
+
+                Text { x: 16; y: 12; text: "LUT PREVIEW"; color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2 }
+
+                Row {
+                    x: 16; y: 34; spacing: 10
+
+                    Switch {
+                        checked: backend.lutEnabled
+                        onToggled: { backend.lutEnabled = checked; }
+                        scale: 0.6; anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    StyledButton {
+                        label: backend.lutName !== "" ? backend.lutName : "Load .cube"
+                        width: 120; height: 24
+                        onClicked: lutDialog.open()
+                    }
+
+                    Text { text: "Blend"; color: "#666"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                    Slider {
+                        width: 120; height: 20; from: 0; to: 1; value: backend.lutBlend; stepSize: 0.05
+                        onMoved: backend.lutBlend = value
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text { text: Math.round(backend.lutBlend * 100) + "%"; color: "#888"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+
+                    StyledButton {
+                        visible: backend.lutName !== ""
+                        label: "Clear"; width: 50; height: 24
+                        onClicked: backend.clearLUT()
+                    }
+                }
+            }
+
             /* ======== NOISE PROFILE + SETTINGS ======== */
             Row {
                 width: parent.width; spacing: 10
@@ -862,6 +900,11 @@ ApplicationWindow {
         onAccepted: backend.outputPath = selectedFile
     }
 
+    FileDialog {
+        id: lutDialog; title: "Select .cube LUT"
+        nameFilters: ["Cube LUT (*.cube *.CUBE)"]
+        onAccepted: backend.loadLUT(selectedFile)
+    }
     FolderDialog {
         id: watchFolderDialog; title: "Select Watch Folder"
         onAccepted: backend.startWatchFolder(selectedFolder.toString().replace("file:///", ""))
