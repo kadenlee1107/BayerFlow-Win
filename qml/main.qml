@@ -533,6 +533,13 @@ ApplicationWindow {
                 }
             }
 
+            /* ======== SCOPE ======== */
+            ScopeView {
+                id: scopeView
+                width: parent.width
+                histData: null
+            }
+
             /* ======== LUT PREVIEW ======== */
             Rectangle {
                 width: parent.width; height: 60
@@ -947,7 +954,7 @@ ApplicationWindow {
     /* ---- Preview reload ---- */
     Connections {
         target: backend
-        function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+        function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now(); scopeView.histData = backend.computeHistogram() }
         function onPreviewModeChanged() {
             previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now()
             if (compareView.visible) { compareView.beforeSource = "image://preview/original?" + Date.now(); compareView.afterSource = "image://preview/denoised?" + Date.now() }

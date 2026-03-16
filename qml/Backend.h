@@ -148,6 +148,7 @@ public slots:
 
     /* Motion analysis */
     Q_INVOKABLE void analyzeMotion();
+    Q_INVOKABLE QVariantMap computeHistogram();
     float motionAvg() const { return m_motionAvg; }
     bool isAnalyzing() const { return m_analyzing; }
     QString motionHint() const;

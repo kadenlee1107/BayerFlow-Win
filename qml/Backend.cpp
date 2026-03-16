@@ -571,6 +571,54 @@ QString Backend::motionHint() const
     return "High motion — Strong preset";
 }
 
+/* ---- Histogram/Scope ---- */
+
+QVariantMap Backend::computeHistogram()
+{
+    QImage img = previewImage();
+    if (img.isNull()) return {};
+    if (img.format() != QImage::Format_RGB888)
+        img = img.convertToFormat(QImage::Format_RGB888);
+
+    int w = img.width(), h = img.height();
+    int rBins[256] = {}, gBins[256] = {}, bBins[256] = {}, lumaBins[256] = {};
+
+    for (int y = 0; y < h; y++) {
+        const uchar *line = img.constScanLine(y);
+        for (int x = 0; x < w; x++) {
+            int off = x * 3;
+            int r = line[off], g = line[off+1], b = line[off+2];
+            int luma = (int)(r * 0.2126f + g * 0.7152f + b * 0.0722f);
+            rBins[r]++; gBins[g]++; bBins[b]++;
+            lumaBins[qMin(luma, 255)]++;
+        }
+    }
+
+    /* Normalize (skip bin 0 and 255 to avoid clipping spikes) */
+    float maxVal = 1;
+    for (int i = 1; i < 255; i++) {
+        if (rBins[i] > maxVal) maxVal = rBins[i];
+        if (gBins[i] > maxVal) maxVal = gBins[i];
+        if (bBins[i] > maxVal) maxVal = bBins[i];
+        if (lumaBins[i] > maxVal) maxVal = lumaBins[i];
+    }
+
+    QVariantList rList, gList, bList, lumaList;
+    for (int i = 0; i < 256; i++) {
+        rList.append(qMin(rBins[i] / maxVal, 1.0f));
+        gList.append(qMin(gBins[i] / maxVal, 1.0f));
+        bList.append(qMin(bBins[i] / maxVal, 1.0f));
+        lumaList.append(qMin(lumaBins[i] / maxVal, 1.0f));
+    }
+
+    QVariantMap result;
+    result["r"] = rList;
+    result["g"] = gList;
+    result["b"] = bList;
+    result["luma"] = lumaList;
+    return result;
+}
+
 /* ---- LUT ---- */
 
 void Backend::loadLUT(const QString &path)
