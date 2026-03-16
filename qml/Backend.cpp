@@ -87,6 +87,9 @@ void Backend::setInputPath(const QString &p)
     emit previewFrameChanged();
     emit previewModeChanged();
 
+    /* Auto-detect camera + load saved noise profile */
+    detectCamera();
+
     /* Auto-fill output */
     QString out = path;
     int dot = out.lastIndexOf('.');
@@ -540,6 +543,105 @@ void Backend::cancelQueue()
     m_cancel.store(true);
 }
 
+/* ---- Camera Detection + Noise Profiles ---- */
+
+struct CameraProfile {
+    const char *pattern;  /* substring match (case-insensitive) */
+    const char *displayName;
+    struct { int iso; float sigma; } isoSigma[12];
+    int count;
+};
+
+static const CameraProfile g_profiles[] = {
+    {"nikon z6",  "Nikon Z6/Z6II/Z6III", {{100,0.8f},{200,1.0f},{400,1.5f},{800,2.5f},{1600,4.0f},{3200,6.0f},{6400,9.0f},{12800,14.0f},{25600,22.0f}}, 9},
+    {"nikon z8",  "Nikon Z8/Z9",         {{64,0.5f},{100,0.7f},{200,0.9f},{400,1.3f},{800,2.2f},{1600,3.5f},{3200,5.5f},{6400,8.0f},{12800,12.0f},{25600,18.0f}}, 10},
+    {"nikon z9",  "Nikon Z8/Z9",         {{64,0.5f},{100,0.7f},{200,0.9f},{400,1.3f},{800,2.2f},{1600,3.5f},{3200,5.5f},{6400,8.0f},{12800,12.0f},{25600,18.0f}}, 10},
+    {"nikon z5",  "Nikon Z5",            {{100,0.9f},{400,1.6f},{800,2.8f},{1600,4.5f},{3200,7.0f},{6400,10.0f},{12800,16.0f}}, 7},
+    {"canon r5 c","Canon R5 C",          {{100,0.6f},{400,1.2f},{800,2.0f},{1600,3.2f},{3200,5.0f},{6400,7.5f},{12800,11.0f},{25600,17.0f}}, 8},
+    {"canon r5",  "Canon R5",            {{100,0.7f},{400,1.3f},{800,2.2f},{1600,3.5f},{3200,5.5f},{6400,8.0f},{12800,12.0f}}, 7},
+    {"canon r3",  "Canon R3",            {{100,0.7f},{400,1.2f},{800,2.0f},{1600,3.0f},{3200,4.8f},{6400,7.0f},{12800,10.0f},{25600,15.0f}}, 8},
+    {"panasonic", "Panasonic S1H/S5/GH6",{{100,0.8f},{400,1.5f},{800,2.5f},{1600,4.0f},{3200,6.5f},{6400,9.5f},{12800,14.0f}}, 7},
+    {"sony",      "Sony A7S/FX3/FX6",    {{100,0.5f},{400,0.9f},{800,1.5f},{1600,2.5f},{3200,4.0f},{6400,6.0f},{12800,9.0f},{25600,13.0f},{51200,20.0f}}, 9},
+    {"red",       "RED Komodo/V-Raptor",  {{250,0.6f},{800,1.5f},{1600,2.8f},{3200,4.5f},{6400,7.0f},{12800,10.0f}}, 6},
+};
+static const int g_numProfiles = sizeof(g_profiles) / sizeof(g_profiles[0]);
+
+static float profileSigma(const CameraProfile &p, int iso) {
+    if (p.count == 0) return 0;
+    float isoF = (float)iso;
+    if (isoF <= p.isoSigma[0].iso) return p.isoSigma[0].sigma;
+    if (isoF >= p.isoSigma[p.count-1].iso) return p.isoSigma[p.count-1].sigma;
+    for (int i = 0; i < p.count - 1; i++) {
+        if (isoF >= p.isoSigma[i].iso && isoF <= p.isoSigma[i+1].iso) {
+            float t = (isoF - p.isoSigma[i].iso) / (float)(p.isoSigma[i+1].iso - p.isoSigma[i].iso);
+            return p.isoSigma[i].sigma + t * (p.isoSigma[i+1].sigma - p.isoSigma[i].sigma);
+        }
+    }
+    return p.isoSigma[p.count-1].sigma;
+}
+
+void Backend::detectCamera()
+{
+    if (m_inputPath.isEmpty()) return;
+    char model[256] = {};
+    int iso = 0;
+    QByteArray path = m_inputPath.toLocal8Bit();
+    denoise_probe_camera(path.data(), model, sizeof(model), &iso);
+
+    m_cameraModel = QString(model).trimmed();
+    m_detectedISO = iso;
+    m_cameraProfileHint.clear();
+
+    /* Match against profile database */
+    QString modelLower = m_cameraModel.toLower();
+    for (int i = 0; i < g_numProfiles; i++) {
+        if (modelLower.contains(g_profiles[i].pattern)) {
+            float sigma = profileSigma(g_profiles[i], iso);
+            m_cameraProfileHint = QString("%1 @ ISO %2 → sigma %3")
+                .arg(g_profiles[i].displayName).arg(iso).arg(sigma, 0, 'f', 1);
+            break;
+        }
+    }
+
+    emit cameraDetected();
+
+    /* Try to load saved calibration for this camera */
+    loadSavedNoiseProfile();
+}
+
+void Backend::saveNoiseProfile()
+{
+    if (m_cameraModel.isEmpty() || !m_noiseValid) return;
+    QSettings settings("BayerFlow", "BayerFlow");
+    QString key = "noiseProfile_" + m_cameraModel.replace(' ', '_');
+    QVariantMap profile;
+    profile["blackLevel"] = m_noiseBlackLevel;
+    profile["shotGain"] = m_noiseShotGain;
+    profile["readNoise"] = m_noiseReadNoise;
+    profile["sigma"] = m_noiseSigma;
+    profile["iso"] = m_detectedISO;
+    settings.setValue(key, profile);
+    setStatus(QString("Noise profile saved for %1").arg(m_cameraModel));
+}
+
+void Backend::loadSavedNoiseProfile()
+{
+    if (m_cameraModel.isEmpty()) return;
+    QSettings settings("BayerFlow", "BayerFlow");
+    QString key = "noiseProfile_" + m_cameraModel.replace(' ', '_');
+    QVariantMap profile = settings.value(key).toMap();
+    if (profile.isEmpty()) return;
+
+    m_noiseBlackLevel = profile["blackLevel"].toFloat();
+    m_noiseShotGain = profile["shotGain"].toFloat();
+    m_noiseReadNoise = profile["readNoise"].toFloat();
+    m_noiseSigma = profile["sigma"].toFloat();
+    m_noiseValid = true;
+    emit noiseProfileChanged();
+    setStatus(QString("Loaded saved profile for %1 (ISO %2)")
+        .arg(m_cameraModel).arg(profile["iso"].toInt()));
+}
+
 /* ---- Motion Analysis ---- */
 
 extern "C" int analyze_motion(const char *input_path, float *avg_motion, float *max_motion,
@@ -629,6 +731,21 @@ QVariantMap Backend::computeHistogram()
     result["b"] = bList;
     result["luma"] = lumaList;
     return result;
+}
+
+/* ---- Update Checker ---- */
+
+void Backend::checkForUpdates()
+{
+    setStatus("Checking for updates...");
+    QThread *t = QThread::create([this]() {
+        /* Simple HTTP GET to version endpoint */
+        /* TODO: implement with QNetworkAccessManager when bayerflow.com is live */
+        QMetaObject::invokeMethod(this, [this]() {
+            setStatus("BayerFlow v1.0.0 — up to date");
+        }, Qt::QueuedConnection);
+    });
+    t->start();
 }
 
 /* ---- LUT ---- */

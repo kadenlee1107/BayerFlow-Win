@@ -45,6 +45,11 @@ class Backend : public QObject {
     Q_PROPERTY(QString etaText READ etaText NOTIFY progressChanged)
     Q_PROPERTY(double fpsValue READ fpsValue NOTIFY progressChanged)
 
+    /* Camera detection */
+    Q_PROPERTY(QString cameraModel READ cameraModel NOTIFY cameraDetected)
+    Q_PROPERTY(int detectedISO READ detectedISO NOTIFY cameraDetected)
+    Q_PROPERTY(QString cameraProfileHint READ cameraProfileHint NOTIFY cameraDetected)
+
     /* Motion analysis */
     Q_PROPERTY(float motionAvg READ motionAvg NOTIFY motionAnalyzed)
     Q_PROPERTY(bool isAnalyzing READ isAnalyzing NOTIFY motionAnalyzed)
@@ -164,6 +169,14 @@ public slots:
     QString motionHint() const;
     QString lutName() const { return m_lutName; }
     bool isWatching() const { return m_watching; }
+
+    /* Camera detection + noise profiles */
+    Q_INVOKABLE void detectCamera();
+    Q_INVOKABLE void saveNoiseProfile();
+    Q_INVOKABLE void loadSavedNoiseProfile();
+
+    /* Update checker */
+    Q_INVOKABLE void checkForUpdates();
     QString watchFolderPath() const { return m_watchPath; }
 
 signals:
@@ -180,6 +193,7 @@ signals:
     void queueChanged();
     void watchChanged();
     void lutChanged();
+    void cameraDetected();
     void motionAnalyzed();
     void previewLoadingChanged();
     void previewFrameChanged();
@@ -254,6 +268,14 @@ private:
     bool isQueueRunning() const { return m_queueRunning; }
     int queueCount() const { return m_queue.size(); }
     void processNextQueueItem();
+
+    /* Camera detection */
+    QString m_cameraModel;
+    int m_detectedISO = 0;
+    QString m_cameraProfileHint;
+    QString cameraModel() const { return m_cameraModel; }
+    int detectedISO() const { return m_detectedISO; }
+    QString cameraProfileHint() const { return m_cameraProfileHint; }
 
     /* Motion analysis */
     float m_motionAvg = 0;
