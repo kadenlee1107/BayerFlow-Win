@@ -79,6 +79,18 @@ void Backend::setOutputPath(const QString &p)
     emit outputPathChanged();
 }
 
+void Backend::setPreset(const QString &p)
+{
+    if (m_preset == p) return;
+    m_preset = p;
+    if (p == "Light") { m_strength = 0.8f; m_windowSize = 7; }
+    else if (p == "Standard") { m_strength = 1.2f; m_windowSize = 11; }
+    else if (p == "Strong") { m_strength = 1.5f; m_windowSize = 15; }
+    /* "Custom" — don't change sliders */
+    emit presetChanged();
+    emit settingsChanged();
+}
+
 void Backend::setStatus(const QString &s)
 {
     m_statusText = s;
@@ -150,7 +162,7 @@ void Backend::generateDenoisedPreview()
         cfg.strength             = m_strength;
         cfg.spatial_strength     = m_spatialStrength;
         cfg.temporal_filter_mode = m_tfMode;
-        cfg.use_cnn_postfilter   = 1;
+        cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
         cfg.auto_dark_frame      = 1;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
@@ -237,7 +249,7 @@ void Backend::startDenoise()
         cfg.strength             = m_strength;
         cfg.spatial_strength     = m_spatialStrength;
         cfg.temporal_filter_mode = m_tfMode;
-        cfg.use_cnn_postfilter   = 1;
+        cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
         cfg.auto_dark_frame      = 1;
         cfg.output_format        = 0;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;

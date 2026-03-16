@@ -411,18 +411,62 @@ ApplicationWindow {
                 Card {
                     width: (parent.width - 10) / 2; height: 155; title: "SETTINGS"
 
-                    Grid {
-                        anchors.top: parent.top; anchors.topMargin: 32
-                        columns: 2; columnSpacing: 20; rowSpacing: 8
+                    Column {
+                        anchors.top: parent.top; anchors.topMargin: 30
+                        anchors.left: parent.left; anchors.leftMargin: 12
+                        anchors.right: parent.right; anchors.rightMargin: 12
+                        spacing: 8
 
-                        Text { text: "Strength"; color: "#666"; font.pixelSize: 12; width: 65 }
-                        SpinBox { from: 1; to: 50; value: 15; stepSize: 1; editable: true; width: 130; height: 30
-                            onValueChanged: backend.strength = value / 10.0
-                            textFromValue: function(v) { return (v / 10.0).toFixed(1) }
+                        /* Preset selector */
+                        Row {
+                            spacing: 4; width: parent.width
+                            Text { text: "Preset"; color: "#666"; font.pixelSize: 11; width: 45; anchors.verticalCenter: parent.verticalCenter }
+                            Repeater {
+                                model: ["Light", "Standard", "Strong", "Custom"]
+                                Rectangle {
+                                    property bool isSelected: backend.preset === modelData
+                                    property bool isHovered: pma.containsMouse
+                                    width: (parent.width - 57) / 4; height: 24; radius: 4
+                                    color: isSelected ? "#e87a20" : isHovered ? "#333" : "#222"
+                                    border.color: isSelected ? "#e87a20" : "#3a3a3a"; border.width: 1
+                                    Text { anchors.centerIn: parent; text: modelData; color: parent.isSelected ? "#fff" : "#999"; font.pixelSize: 10; font.weight: Font.Medium }
+                                    MouseArea { id: pma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.preset = modelData
+                                    }
+                                }
+                            }
                         }
-                        Text { text: "Window"; color: "#666"; font.pixelSize: 12; width: 65 }
-                        SpinBox { from: 3; to: 31; value: 15; stepSize: 2; editable: true; width: 130; height: 30
-                            onValueChanged: backend.windowSize = value
+
+                        /* Strength + Window (read-only unless Custom) */
+                        Row {
+                            spacing: 12; width: parent.width
+                            Text { text: "Strength"; color: "#666"; font.pixelSize: 11; width: 55; anchors.verticalCenter: parent.verticalCenter }
+                            SpinBox {
+                                id: strengthSpin; from: 1; to: 50; stepSize: 1; width: 100; height: 26
+                                value: Math.round(backend.strength * 10)
+                                editable: backend.preset === "Custom"
+                                textFromValue: function(v) { return (v / 10.0).toFixed(1) }
+                                onValueModified: { backend.strength = value / 10.0; backend.preset = "Custom" }
+                            }
+                            Text { text: "Window"; color: "#666"; font.pixelSize: 11; width: 45; anchors.verticalCenter: parent.verticalCenter }
+                            SpinBox {
+                                id: windowSpin; from: 3; to: 31; stepSize: 2; width: 80; height: 26
+                                value: backend.windowSize
+                                editable: backend.preset === "Custom"
+                                onValueModified: { backend.windowSize = value; backend.preset = "Custom" }
+                            }
+                        }
+
+                        /* CNN toggle */
+                        Row {
+                            spacing: 8; width: parent.width
+                            Text { text: "CNN Post-Filter"; color: "#666"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                            Switch {
+                                checked: backend.useCNN
+                                onToggled: backend.useCNN = checked
+                                scale: 0.7
+                            }
+                            Text { text: backend.useCNN ? "ON (slower, better quality)" : "OFF (faster)"; color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
                 }

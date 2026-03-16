@@ -33,6 +33,8 @@ class Backend : public QObject {
     Q_PROPERTY(int windowSize MEMBER m_windowSize NOTIFY settingsChanged)
     Q_PROPERTY(float spatialStrength MEMBER m_spatialStrength NOTIFY settingsChanged)
     Q_PROPERTY(int tfMode MEMBER m_tfMode NOTIFY settingsChanged)
+    Q_PROPERTY(bool useCNN MEMBER m_useCNN NOTIFY settingsChanged)
+    Q_PROPERTY(QString preset READ preset WRITE setPreset NOTIFY presetChanged)
 
     /* First launch + training consent */
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
@@ -72,6 +74,9 @@ public:
     bool hasOriginal() const { return !m_originalImage.isNull(); }
     bool hasDenoised() const { return !m_denoisedImage.isNull(); }
 
+    QString preset() const { return m_preset; }
+    void setPreset(const QString &p);
+
     void setInputPath(const QString &p);
     void setOutputPath(const QString &p);
 
@@ -93,6 +98,7 @@ signals:
     void noiseProfileChanged();
     void settingsChanged();
     void trainingConsentChanged();
+    void presetChanged();
     void previewLoadingChanged();
     void previewFrameChanged();
     void previewModeChanged();
@@ -116,6 +122,8 @@ private:
     int m_windowSize = 15;
     float m_spatialStrength = 0.0f;
     int m_tfMode = 2;
+    bool m_useCNN = true;
+    QString m_preset = "Strong";
 
     /* First launch + consent */
     bool m_isFirstLaunch = true;
