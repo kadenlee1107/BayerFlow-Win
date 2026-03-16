@@ -1305,7 +1305,12 @@ static int denoise_file_rgb(
         }
         fprintf(stderr, "denoise_file_rgb: CineForm output → %s\n", output_path);
     } else {
-        if (prores444_writer_open(output_path, width, height, fps) != 0) {
+        /* ProRes 4444 not available on Windows — fall back to EXR */
+        if (!prores444_writer_available()) {
+            use_exr = 1;
+            mkdir(output_path, 0755);
+            fprintf(stderr, "denoise_file_rgb: ProRes 4444 unavailable, using EXR → %s/\n", output_path);
+        } else if (prores444_writer_open(output_path, width, height, fps) != 0) {
             fprintf(stderr, "denoise_file_rgb: cannot open ProRes 4444 output '%s'\n",
                     output_path);
             return DENOISE_ERR_OUTPUT_OPEN;
@@ -1978,12 +1983,9 @@ int denoise_file(
     if (tcfg.noise_sigma == 0)
         tcfg.noise_sigma = temporal_filter_estimate_noise(window_frames[0], width, height);
 
-    fprintf(stderr, "CFG_DBG: cfg->bl=%.1f cfg->sg=%.3f cfg->rn=%.1f\n", cfg->black_level, cfg->shot_gain, cfg->read_noise);
-    fprintf(stderr, "NOISE_DBG: vst bl=%.1f sg=%.3f rn=%.1f\n", vst_bl, vst_sg, vst_rn);
-    fprintf(stderr, "DIAG: noise_sigma=%.1f, h=sigma*strength=%.1f, strength=%.2f, window=%d, spatial=%.2f, cnn=%d, mps=%d, coreml=%d\n",
-            tcfg.noise_sigma, tcfg.noise_sigma * tcfg.strength, tcfg.strength,
-            W, cfg->spatial_strength, cfg->use_cnn_postfilter,
-            mps_postfilter_available(), cnn_postfilter_available());
+    fprintf(stderr, "DIAG: noise_sigma=%.1f, strength=%.2f, window=%d, vst_bl=%.0f sg=%.1f rn=%.0f, cnn=%d\n",
+            tcfg.noise_sigma, tcfg.strength, W, vst_bl, vst_sg, vst_rn,
+            mps_postfilter_available());
 
     /* Subject protection: reduce CNN denoise on detected persons */
     if (mps_postfilter_available()) {
@@ -2506,7 +2508,7 @@ int denoise_file(
 
                 /* Kick Encode(f-1) — CNN just finished on buf[1-ping] */
                 enc_ctx.denoised_in = denoised_bufs[1 - ping];
-                fprintf(stderr, "ENC_KICK: frame f-1, buf[%d], ptr=%p, val[0]=%u val[1000]=%u\n", 1-ping, (void*)enc_ctx.denoised_in, enc_ctx.denoised_in[0], enc_ctx.denoised_in[1000]);
+                /* enc_ctx.denoised_in set above */
                 enc_ctx.encode_out  = encode_bufs[1 - ping];
                 enc_ctx.downshift_buf = downshift_bufs[1 - ping];
                 if (output_is_dng)

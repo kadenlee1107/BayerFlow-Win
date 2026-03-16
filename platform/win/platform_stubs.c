@@ -30,8 +30,8 @@ int r3d_reader_get_info(const R3dReader *r, R3dInfo *info) {
     (void)r; (void)info; return -1;
 }
 int r3d_reader_read_frame_rgb(R3dReader *r, int frame_idx,
-                               uint16_t *rgb_out, int width, int height) {
-    (void)r; (void)frame_idx; (void)rgb_out; (void)width; (void)height;
+                               uint16_t *rgb_out) {
+    (void)r; (void)frame_idx; (void)rgb_out;
     return -1;
 }
 void r3d_reader_close(R3dReader *r) { (void)r; }
