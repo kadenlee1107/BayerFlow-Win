@@ -7,6 +7,8 @@
 #include <QFileSystemWatcher>
 #include <QTimer>
 #include <QStringList>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <atomic>
 
 extern "C" {
@@ -188,6 +190,9 @@ public slots:
 
     /* Training data upload */
     Q_INVOKABLE void uploadPendingTrainingData();
+
+    /* Subject protection */
+    Q_INVOKABLE void generateSubjectMask();
 
     /* Licensing */
     Q_INVOKABLE bool activateLicense(const QString &email, const QString &key);
