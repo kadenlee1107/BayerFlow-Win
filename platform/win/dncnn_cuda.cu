@@ -1,12 +1,23 @@
-/* dncnn_cuda.cu — DnCNN spatial denoiser via CUDA.
- * 7-layer 3x3 conv + ReLU, single-channel (Bayer sub-channel).
- * All data stays on GPU — 1 upload + 1 download per frame. */
+/* dncnn_cuda.cu — DnCNN spatial denoiser.
+ * Two modes:
+ *   1. ONNX Runtime CPU (preferred — fast via oneDNN, frees GPU for RAFT)
+ *   2. Hand-written CUDA kernels (fallback if dncnn.onnx not found)
+ * 7-layer 3x3 conv + ReLU, single-channel (Bayer sub-channel). */
 
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "onnxruntime_c_api.h"
+
+/* ---- ONNX Runtime CPU session for DnCNN ---- */
+static const OrtApi *g_dncnn_ort = NULL;
+static OrtSession *g_dncnn_session = NULL;
+static OrtSessionOptions *g_dncnn_sopts = NULL;
+static OrtEnv *g_dncnn_env = NULL;
+static OrtMemoryInfo *g_dncnn_mem = NULL;
+static int g_use_ort_cpu = 0;  /* 1 = ONNX CPU mode, 0 = CUDA kernel mode */
 
 /* ---- DnCNN layer data ---- */
 typedef struct {
@@ -88,8 +99,87 @@ __global__ void blend_residual_k(
     bayer[(y * 2 + dy) * width + (x * 2 + dx)] = (uint16_t)(d * 65535.0f + 0.5f);
 }
 
+/* ---- Try ONNX CPU init (preferred path) ---- */
+static int try_onnx_cpu_init(const char *bin_path) {
+    /* Derive dncnn.onnx path from the .bin path */
+    char onnx_path[512];
+    const char *dir_end = strrchr(bin_path, '\\');
+    if (!dir_end) dir_end = strrchr(bin_path, '/');
+    if (dir_end) {
+        int dirlen = (int)(dir_end - bin_path);
+        snprintf(onnx_path, sizeof(onnx_path), "%.*s\\dncnn.onnx", dirlen, bin_path);
+    } else {
+        snprintf(onnx_path, sizeof(onnx_path), "dncnn.onnx");
+    }
+
+    FILE *test = fopen(onnx_path, "rb");
+    if (!test) return -1;
+    fclose(test);
+
+    g_dncnn_ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+    if (!g_dncnn_ort) return -1;
+
+    g_dncnn_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "dncnn_cpu", &g_dncnn_env);
+    g_dncnn_ort->CreateSessionOptions(&g_dncnn_sopts);
+    g_dncnn_ort->SetSessionGraphOptimizationLevel(g_dncnn_sopts, ORT_ENABLE_ALL);
+    g_dncnn_ort->SetIntraOpNumThreads(g_dncnn_sopts, 8);  /* use 8 CPU threads */
+
+    /* CPU only — no CUDA EP, keeps GPU free for RAFT */
+    wchar_t wpath[512];
+    for (size_t i = 0; i <= strlen(onnx_path); i++) wpath[i] = (wchar_t)onnx_path[i];
+
+    OrtStatus *st = g_dncnn_ort->CreateSession(g_dncnn_env, wpath, g_dncnn_sopts, &g_dncnn_session);
+    if (st != NULL) {
+        fprintf(stderr, "DnCNN ORT CPU: CreateSession failed: %s\n", g_dncnn_ort->GetErrorMessage(st));
+        g_dncnn_ort->ReleaseStatus(st);
+        return -1;
+    }
+
+    g_dncnn_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &g_dncnn_mem);
+    g_use_ort_cpu = 1;
+    fprintf(stderr, "DnCNN ORT CPU: loaded %s (8 threads, oneDNN)\n", onnx_path);
+    return 0;
+}
+
+/* ---- Run one sub-channel through ONNX CPU ---- */
+static int dncnn_ort_cpu_run(const float *h_in, float *h_out, int H, int W) {
+    int64_t shape[] = {1, 1, H, W};
+    size_t npix = (size_t)H * W;
+
+    OrtValue *input_tensor = NULL;
+    g_dncnn_ort->CreateTensorWithDataAsOrtValue(g_dncnn_mem, (void *)h_in, npix * sizeof(float),
+        shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor);
+
+    const char *in_names[] = {"input"};
+    const char *out_names[] = {"residual"};
+    OrtValue *output_tensor = NULL;
+
+    OrtStatus *st = g_dncnn_ort->Run(g_dncnn_session, NULL,
+        in_names, (const OrtValue *const *)&input_tensor, 1,
+        out_names, 1, &output_tensor);
+
+    if (st != NULL) {
+        fprintf(stderr, "DnCNN ORT CPU Run error: %s\n", g_dncnn_ort->GetErrorMessage(st));
+        g_dncnn_ort->ReleaseStatus(st);
+        g_dncnn_ort->ReleaseValue(input_tensor);
+        return -1;
+    }
+
+    float *out_data = NULL;
+    g_dncnn_ort->GetTensorMutableData(output_tensor, (void **)&out_data);
+    memcpy(h_out, out_data, npix * sizeof(float));
+
+    g_dncnn_ort->ReleaseValue(input_tensor);
+    g_dncnn_ort->ReleaseValue(output_tensor);
+    return 0;
+}
+
 /* ---- Load weights from .bin file ---- */
 extern "C" int dncnn_cuda_init(const char *weight_path) {
+    /* Try ONNX CPU first (faster, frees GPU for RAFT) */
+    if (try_onnx_cpu_init(weight_path) == 0) return 0;
+
+    /* Fallback: load .bin weights for CUDA kernel path */
     FILE *f = fopen(weight_path, "rb");
     if (!f) { fprintf(stderr, "DnCNN: cannot open %s\n", weight_path); return -1; }
 
@@ -189,12 +279,46 @@ static int dncnn_run_gpu(float *d_input, float *d_output, int H, int W) {
     return 0;
 }
 
-/* ---- High-level: denoise uint16 Bayer frame, all on GPU ---- */
+/* ---- High-level: denoise uint16 Bayer frame ---- */
 extern "C" int dncnn_cuda_denoise_bayer(uint16_t *bayer, int width, int height,
                                           float blend, float noise_sigma) {
-    if (!g_layers) return -1;
     (void)noise_sigma;
 
+    /* ONNX CPU path — preferred (fast + frees GPU) */
+    if (g_use_ort_cpu) {
+        int scw = width / 2, sch = height / 2;
+        size_t sc_pixels = (size_t)scw * sch;
+        float *h_in = (float *)malloc(sc_pixels * sizeof(float));
+        float *h_out = (float *)malloc(sc_pixels * sizeof(float));
+        if (!h_in || !h_out) { free(h_in); free(h_out); return -1; }
+        float scale = 1.0f / 65535.0f;
+
+        for (int dy = 0; dy < 2; dy++) {
+            for (int dx = 0; dx < 2; dx++) {
+                for (int y = 0; y < sch; y++)
+                    for (int x = 0; x < scw; x++)
+                        h_in[y * scw + x] = (float)bayer[(y * 2 + dy) * width + (x * 2 + dx)] * scale;
+
+                if (dncnn_ort_cpu_run(h_in, h_out, sch, scw) != 0) continue;
+
+                for (int y = 0; y < sch; y++) {
+                    for (int x = 0; x < scw; x++) {
+                        int i = y * scw + x;
+                        float d = h_in[i] - blend * h_out[i];
+                        if (d < 0.0f) d = 0.0f;
+                        if (d > 1.0f) d = 1.0f;
+                        bayer[(y * 2 + dy) * width + (x * 2 + dx)] = (uint16_t)(d * 65535.0f + 0.5f);
+                    }
+                }
+            }
+        }
+        free(h_in);
+        free(h_out);
+        return 0;
+    }
+
+    /* CUDA kernel fallback */
+    if (!g_layers) return -1;
     cudaDeviceSynchronize();
 
     int scw = width / 2, sch = height / 2;
