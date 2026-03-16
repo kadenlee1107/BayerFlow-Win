@@ -15,6 +15,8 @@ ApplicationWindow {
     color: "#0a0a0a"
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    property bool showHub: true
+
     /* ---- Resize handles ---- */
     MouseArea {
         anchors.right: parent.right
@@ -181,8 +183,47 @@ ApplicationWindow {
         }
     }
 
-    /* ---- Main Content ---- */
+    /* ---- Format Hub (landing screen) ---- */
+    FormatHub {
+        id: formatHub
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: statusBar.top
+        visible: root.showHub
+        opacity: root.showHub ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+
+        onFormatSelected: function(formatName) {
+            root.showHub = false
+        }
+    }
+
+    /* ---- Back to Hub button ---- */
+    Rectangle {
+        anchors.left: parent.left
+        anchors.leftMargin: 14
+        anchors.top: titleBar.bottom
+        anchors.topMargin: 10
+        width: 80; height: 28; radius: 4; z: 5
+        color: backMA.containsMouse ? "#333" : "#222"
+        visible: !root.showHub
+        opacity: !root.showHub ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+
+        Row {
+            anchors.centerIn: parent; spacing: 4
+            Text { text: "\u2190"; color: "#e87a20"; font.pixelSize: 14 }
+            Text { text: "Hub"; color: "#aaa"; font.pixelSize: 12 }
+        }
+        MouseArea { id: backMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+            onClicked: root.showHub = true
+        }
+    }
+
+    /* ---- Denoise Content ---- */
     Flickable {
+        visible: !root.showHub
         anchors.top: titleBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
@@ -424,5 +465,30 @@ ApplicationWindow {
     Connections {
         target: backend
         function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+    }
+
+    /* ---- Onboarding Popup (first launch) ---- */
+    OnboardingPopup {
+        id: onboardingPopup
+        onDismissed: {
+            backend.markOnboardingDone()
+            trainingConsentPopup.visible = true
+        }
+    }
+
+    /* ---- Training Consent Popup (shown after onboarding) ---- */
+    TrainingConsentPopup {
+        id: trainingConsentPopup
+        onAccepted: backend.trainingConsent = true
+        onDeclined: backend.trainingConsent = false
+    }
+
+    /* Show onboarding on first launch */
+    Component.onCompleted: {
+        console.log("BF: isFirstLaunch =", backend.isFirstLaunch)
+        if (backend.isFirstLaunch) {
+            console.log("BF: showing onboarding")
+            onboardingPopup.visible = true
+        }
     }
 }

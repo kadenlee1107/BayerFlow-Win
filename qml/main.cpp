@@ -23,6 +23,10 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("backend", &backend);
     engine.addImageProvider("preview", new PreviewImageProvider(&backend));
+    engine.addImportPath("C:/Users/kaden/BayerFlow-Win/qml");
+
+    /* Enable QML warnings to stderr */
+    qputenv("QML_IMPORT_TRACE", "1");
 
     engine.load(QUrl::fromLocalFile("C:/Users/kaden/BayerFlow-Win/qml/main.qml"));
 

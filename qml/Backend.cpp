@@ -1,5 +1,6 @@
 #include "Backend.h"
 #include <QUrl>
+#include <QSettings>
 #include <cstdlib>
 
 extern "C" {
@@ -29,7 +30,12 @@ static QImage bayerToQImage(const uint16_t *bayer, int w, int h)
     return img;
 }
 
-Backend::Backend(QObject *parent) : QObject(parent) {}
+Backend::Backend(QObject *parent) : QObject(parent)
+{
+    QSettings settings("BayerFlow", "BayerFlow");
+    m_isFirstLaunch = !settings.value("onboardingShown", false).toBool();
+    m_trainingConsent = settings.value("trainingDataConsent", false).toBool();
+}
 
 Backend::~Backend()
 {
@@ -142,6 +148,7 @@ void Backend::startDenoise()
         cfg.use_cnn_postfilter   = 1;
         cfg.auto_dark_frame      = 1;
         cfg.output_format        = 0;
+        cfg.collect_training_data = m_trainingConsent ? 1 : 0;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
@@ -170,4 +177,20 @@ void Backend::cancelDenoise()
 {
     m_cancel.store(true);
     setStatus("Cancelling...");
+}
+
+void Backend::markOnboardingDone()
+{
+    QSettings settings("BayerFlow", "BayerFlow");
+    settings.setValue("onboardingShown", true);
+    m_isFirstLaunch = false;
+}
+
+void Backend::setTrainingConsent(bool v)
+{
+    if (m_trainingConsent == v) return;
+    m_trainingConsent = v;
+    QSettings settings("BayerFlow", "BayerFlow");
+    settings.setValue("trainingDataConsent", v);
+    emit trainingConsentChanged();
 }
