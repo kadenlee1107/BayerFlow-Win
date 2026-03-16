@@ -409,25 +409,32 @@ ApplicationWindow {
                     Text { text: "PREVIEW"; color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2; anchors.verticalCenter: parent.verticalCenter }
                     Item { Layout.fillWidth: true; width: 10; height: 1 }
 
-                    /* Before / After toggle */
+                    /* Before / After / Compare toggle */
+                    property string previewMode: "before"  /* before, after, compare */
                     Rectangle {
                         visible: backend.hasDenoised
-                        width: beforeAfterRow.width + 8; height: 28; radius: 4
+                        width: baRow.width + 8; height: 28; radius: 4
                         color: "#2a2a2a"; border.color: "#3a3a3a"; border.width: 1
                         anchors.verticalCenter: parent.verticalCenter
                         Row {
-                            id: beforeAfterRow; anchors.centerIn: parent; spacing: 2
-                            Rectangle {
-                                width: 52; height: 22; radius: 3
-                                color: !backend.showDenoised ? "#e87a20" : "transparent"
-                                Text { anchors.centerIn: parent; text: "Before"; color: !backend.showDenoised ? "#fff" : "#888"; font.pixelSize: 10; font.weight: Font.Medium }
-                                MouseArea { anchors.fill: parent; onClicked: { backend.showDenoised = false } }
-                            }
-                            Rectangle {
-                                width: 46; height: 22; radius: 3
-                                color: backend.showDenoised ? "#e87a20" : "transparent"
-                                Text { anchors.centerIn: parent; text: "After"; color: backend.showDenoised ? "#fff" : "#888"; font.pixelSize: 10; font.weight: Font.Medium }
-                                MouseArea { anchors.fill: parent; onClicked: { backend.showDenoised = true } }
+                            id: baRow; anchors.centerIn: parent; spacing: 2
+                            Repeater {
+                                model: ["Before", "After", "Compare"]
+                                Rectangle {
+                                    property string mode: modelData.toLowerCase()
+                                    property bool active: parent.parent.parent.parent.previewMode === mode
+                                    width: modelData === "Compare" ? 62 : 46; height: 22; radius: 3
+                                    color: active ? "#e87a20" : baItemMA.containsMouse ? "#333" : "transparent"
+                                    Text { anchors.centerIn: parent; text: modelData; color: parent.active ? "#fff" : "#888"; font.pixelSize: 10; font.weight: Font.Medium }
+                                    MouseArea { id: baItemMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            var r = parent.parent.parent.parent.parent
+                                            r.previewMode = parent.mode
+                                            if (parent.mode === "before") backend.showDenoised = false
+                                            else if (parent.mode === "after") backend.showDenoised = true
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -463,16 +470,27 @@ ApplicationWindow {
                     color: "#0a0a0a"; radius: 6; clip: true
                     border.color: "#1a1a1a"; border.width: 1
 
+                    /* Normal preview (before or after) */
                     Image {
                         id: previewImg
                         anchors.fill: parent; anchors.margins: 2
                         fillMode: Image.PreserveAspectFit
                         source: ""; cache: false
+                        visible: previewMode !== "compare"
+                    }
+
+                    /* Wipe comparison view */
+                    CompareView {
+                        id: compareView
+                        anchors.fill: parent; anchors.margins: 2
+                        visible: previewMode === "compare" && backend.hasDenoised
+                        beforeSource: visible ? "image://preview/original?" + Date.now() : ""
+                        afterSource: visible ? "image://preview/denoised?" + Date.now() : ""
                     }
 
                     Text {
                         anchors.centerIn: parent
-                        text: previewImg.source == "" ? "Drag to select noise patch" : ""
+                        text: previewImg.source == "" && !compareView.visible ? "Drag to select noise patch" : ""
                         color: "#333"; font.pixelSize: 13
                     }
 
@@ -930,8 +948,14 @@ ApplicationWindow {
     Connections {
         target: backend
         function onPreviewChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
-        function onPreviewModeChanged() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
-        function onDenoisedPreviewReady() { previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now() }
+        function onPreviewModeChanged() {
+            previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now()
+            if (compareView.visible) { compareView.beforeSource = "image://preview/original?" + Date.now(); compareView.afterSource = "image://preview/denoised?" + Date.now() }
+        }
+        function onDenoisedPreviewReady() {
+            previewImg.source = ""; previewImg.source = "image://preview/frame?" + Date.now()
+            if (compareView.visible) { compareView.beforeSource = "image://preview/original?" + Date.now(); compareView.afterSource = "image://preview/denoised?" + Date.now() }
+        }
     }
 
     /* ---- Onboarding Popup (first launch) ---- */

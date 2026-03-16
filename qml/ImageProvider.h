@@ -8,8 +8,16 @@ public:
         : QQuickImageProvider(QQuickImageProvider::Image), m_backend(backend) {}
 
     QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override {
-        Q_UNUSED(id);
-        QImage img = m_backend->previewImage();
+        QImage img;
+
+        /* Support separate original/denoised requests for compare view */
+        if (id.startsWith("original"))
+            img = m_backend->originalImage();
+        else if (id.startsWith("denoised"))
+            img = m_backend->denoisedImage();
+        else
+            img = m_backend->previewImage();
+
         if (size) *size = img.size();
         if (requestedSize.isValid() && !img.isNull())
             return img.scaled(requestedSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);

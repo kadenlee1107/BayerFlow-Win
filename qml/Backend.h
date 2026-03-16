@@ -86,6 +86,8 @@ public:
     int progressPercent() const { return m_progressPercent; }
     QString statusText() const { return m_statusText; }
     QImage previewImage() const;  /* returns original or denoised based on m_showDenoised */
+    QImage originalImage() const { return m_originalImage; }
+    QImage denoisedImage() const { return m_denoisedImage; }
 
     float noiseBlackLevel() const { return m_noiseBlackLevel; }
     float noiseShotGain() const { return m_noiseShotGain; }
