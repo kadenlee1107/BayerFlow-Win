@@ -8,7 +8,7 @@ ApplicationWindow {
     id: root
     visible: true
     width: 1020
-    height: 795
+    height: 840
     minimumWidth: 800
     minimumHeight: 700
     title: "BayerFlow"
@@ -218,10 +218,132 @@ ApplicationWindow {
 
     /* ---- Back to Hub button (inside title bar) ---- */
 
+    /* ---- Tab Bar ---- */
+    property var sessions: [{ id: 0, label: "Untitled", color: "#e87a20", state: {} }]
+    property int activeTabId: 0
+    property int nextTabId: 1
+
+    function switchTab(tabId) {
+        if (tabId === activeTabId) return
+        /* Save current session state */
+        for (var i = 0; i < sessions.length; i++) {
+            if (sessions[i].id === activeTabId) {
+                sessions[i].state = backend.saveSessionState()
+                sessions[i].label = backend.inputPath !== "" ?
+                    backend.inputPath.split(/[/\\]/).pop().replace(/\.[^.]+$/, '') : "Untitled"
+                break
+            }
+        }
+        activeTabId = tabId
+        /* Restore selected session state */
+        for (var j = 0; j < sessions.length; j++) {
+            if (sessions[j].id === tabId) {
+                backend.restoreSessionState(sessions[j].state)
+                break
+            }
+        }
+        sessionsChanged()
+    }
+
+    function addTab() {
+        /* Save current state first */
+        for (var i = 0; i < sessions.length; i++) {
+            if (sessions[i].id === activeTabId) {
+                sessions[i].state = backend.saveSessionState()
+                sessions[i].label = backend.inputPath !== "" ?
+                    backend.inputPath.split(/[/\\]/).pop().replace(/\.[^.]+$/, '') : "Untitled"
+                break
+            }
+        }
+        var newId = nextTabId++
+        sessions.push({ id: newId, label: "Untitled", color: "#e87a20", state: {} })
+        activeTabId = newId
+        backend.restoreSessionState({})  /* Reset to empty state */
+        root.showHub = true  /* New tab opens to format hub */
+        sessionsChanged()
+    }
+
+    function closeTab(tabId) {
+        if (sessions.length <= 1) return
+        var idx = -1
+        for (var i = 0; i < sessions.length; i++) {
+            if (sessions[i].id === tabId) { idx = i; break }
+        }
+        if (idx < 0) return
+        sessions.splice(idx, 1)
+        if (activeTabId === tabId) {
+            var newIdx = Math.min(idx, sessions.length - 1)
+            activeTabId = sessions[newIdx].id
+            backend.restoreSessionState(sessions[newIdx].state)
+        }
+        sessionsChanged()
+    }
+
+    Rectangle {
+        id: tabBar
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left; anchors.right: parent.right
+        height: !root.showHub ? 32 : 0; visible: !root.showHub
+        color: "#161616"; z: 8
+        clip: true
+
+        Row {
+            anchors.left: parent.left; anchors.leftMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Repeater {
+                model: root.sessions.length
+                Rectangle {
+                    property var sess: root.sessions[index]
+                    property bool isActive: sess.id === root.activeTabId
+                    property bool isHovered: tabMA.containsMouse
+                    width: tabLabel.width + (root.sessions.length > 1 ? 42 : 24); height: 26; radius: 4
+                    color: isActive ? "#2a2a2a" : isHovered ? "#222" : "transparent"
+                    border.color: isActive ? "#3a3a3a" : "transparent"; border.width: 1
+
+                    Row {
+                        anchors.centerIn: parent; spacing: 5
+                        Rectangle { width: 7; height: 7; radius: 3.5; color: sess.color; anchors.verticalCenter: parent.verticalCenter }
+                        Text { id: tabLabel; text: sess.label; color: isActive ? "#ddd" : "#777"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter
+                            elide: Text.ElideMiddle; maximumLineCount: 1
+                        }
+                        /* Close button */
+                        Text {
+                            visible: root.sessions.length > 1
+                            text: "\u00d7"; color: tabCloseMA.containsMouse ? "#e87a20" : "#555"; font.pixelSize: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            MouseArea { id: tabCloseMA; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: root.closeTab(sess.id)
+                            }
+                        }
+                    }
+                    MouseArea { id: tabMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: root.switchTab(sess.id)
+                        z: -1  /* below close button */
+                    }
+                }
+            }
+
+            /* Add tab button */
+            Rectangle {
+                width: 26; height: 26; radius: 4
+                color: addTabMA.containsMouse ? "#2a2a2a" : "transparent"
+                Text { anchors.centerIn: parent; text: "+"; color: "#666"; font.pixelSize: 16 }
+                MouseArea { id: addTabMA; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: root.addTab()
+                }
+            }
+        }
+
+        /* Bottom border */
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#1a1a1a" }
+    }
+
     /* ---- Denoise Content ---- */
     Flickable {
         visible: !root.showHub
-        anchors.top: titleBar.bottom
+        anchors.top: tabBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: statusBar.top

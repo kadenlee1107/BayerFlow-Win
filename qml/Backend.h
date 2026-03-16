@@ -3,6 +3,7 @@
 #include <QString>
 #include <QImage>
 #include <QThread>
+#include <QVariantMap>
 #include <atomic>
 
 extern "C" {
@@ -87,6 +88,10 @@ public slots:
     void cancelDenoise();
     void generateDenoisedPreview();
     Q_INVOKABLE void markOnboardingDone();
+
+    /* Tab/session management */
+    Q_INVOKABLE QVariantMap saveSessionState();
+    Q_INVOKABLE void restoreSessionState(const QVariantMap &state);
 
 signals:
     void inputPathChanged();

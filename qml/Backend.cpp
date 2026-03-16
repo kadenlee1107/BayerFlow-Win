@@ -290,6 +290,55 @@ void Backend::markOnboardingDone()
     m_isFirstLaunch = false;
 }
 
+QVariantMap Backend::saveSessionState()
+{
+    QVariantMap s;
+    s["inputPath"] = m_inputPath;
+    s["outputPath"] = m_outputPath;
+    s["strength"] = m_strength;
+    s["windowSize"] = m_windowSize;
+    s["spatialStrength"] = m_spatialStrength;
+    s["tfMode"] = m_tfMode;
+    s["useCNN"] = m_useCNN;
+    s["preset"] = m_preset;
+    s["previewFrameIndex"] = m_previewFrameIndex;
+    s["noiseValid"] = m_noiseValid;
+    s["noiseBlackLevel"] = m_noiseBlackLevel;
+    s["noiseShotGain"] = m_noiseShotGain;
+    s["noiseReadNoise"] = m_noiseReadNoise;
+    s["noiseSigma"] = m_noiseSigma;
+    return s;
+}
+
+void Backend::restoreSessionState(const QVariantMap &s)
+{
+    if (s.contains("inputPath")) setInputPath(s["inputPath"].toString());
+    if (s.contains("outputPath")) setOutputPath(s["outputPath"].toString());
+    if (s.contains("strength")) { m_strength = s["strength"].toFloat(); emit settingsChanged(); }
+    if (s.contains("windowSize")) { m_windowSize = s["windowSize"].toInt(); emit settingsChanged(); }
+    if (s.contains("spatialStrength")) { m_spatialStrength = s["spatialStrength"].toFloat(); }
+    if (s.contains("tfMode")) { m_tfMode = s["tfMode"].toInt(); }
+    if (s.contains("useCNN")) { m_useCNN = s["useCNN"].toBool(); emit settingsChanged(); }
+    if (s.contains("preset")) { m_preset = s["preset"].toString(); emit presetChanged(); }
+    if (s.contains("previewFrameIndex")) { m_previewFrameIndex = s["previewFrameIndex"].toInt(); emit previewFrameChanged(); }
+    if (s.contains("noiseValid")) {
+        m_noiseValid = s["noiseValid"].toBool();
+        m_noiseBlackLevel = s["noiseBlackLevel"].toFloat();
+        m_noiseShotGain = s["noiseShotGain"].toFloat();
+        m_noiseReadNoise = s["noiseReadNoise"].toFloat();
+        m_noiseSigma = s["noiseSigma"].toFloat();
+        emit noiseProfileChanged();
+    }
+
+    /* Clear preview images — will need to reload */
+    m_originalImage = QImage();
+    m_denoisedImage = QImage();
+    m_showDenoised = false;
+    free(m_bayer); m_bayer = nullptr;
+    emit previewChanged();
+    emit previewModeChanged();
+}
+
 void Backend::setTrainingConsent(bool v)
 {
     if (m_trainingConsent == v) return;
