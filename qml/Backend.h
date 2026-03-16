@@ -41,6 +41,11 @@ class Backend : public QObject {
     Q_PROPERTY(bool isFirstLaunch READ isFirstLaunch CONSTANT)
     Q_PROPERTY(bool trainingConsent READ trainingConsent WRITE setTrainingConsent NOTIFY trainingConsentChanged)
 
+    /* Batch queue */
+    Q_PROPERTY(QVariantList queueModel READ queueModel NOTIFY queueChanged)
+    Q_PROPERTY(bool isQueueRunning READ isQueueRunning NOTIFY queueChanged)
+    Q_PROPERTY(int queueCount READ queueCount NOTIFY queueChanged)
+
     /* Denoised preview */
     Q_PROPERTY(bool isPreviewLoading READ isPreviewLoading NOTIFY previewLoadingChanged)
     Q_PROPERTY(int previewFrameIndex MEMBER m_previewFrameIndex NOTIFY previewFrameChanged)
@@ -93,6 +98,13 @@ public slots:
     Q_INVOKABLE QVariantMap saveSessionState();
     Q_INVOKABLE void restoreSessionState(const QVariantMap &state);
 
+    /* Batch queue */
+    Q_INVOKABLE void addToQueue(const QString &inputPath, const QString &outputPath);
+    Q_INVOKABLE void removeFromQueue(int index);
+    Q_INVOKABLE void clearQueue();
+    Q_INVOKABLE void startQueue();
+    Q_INVOKABLE void cancelQueue();
+
 signals:
     void inputPathChanged();
     void outputPathChanged();
@@ -104,6 +116,7 @@ signals:
     void settingsChanged();
     void trainingConsentChanged();
     void presetChanged();
+    void queueChanged();
     void previewLoadingChanged();
     void previewFrameChanged();
     void previewModeChanged();
@@ -146,11 +159,28 @@ private:
     int m_frameCount = 0;
     bool m_showDenoised = false;
 
+    /* Batch queue */
+    struct QueueItem {
+        QString inputPath, outputPath, filename;
+        QString status;  /* "pending", "processing", "done", "failed" */
+        int progressPercent = 0;
+        QString message;
+    };
+    QList<QueueItem> m_queue;
+    bool m_queueRunning = false;
+    int m_queueIndex = -1;
+
+    QVariantList queueModel() const;
+    bool isQueueRunning() const { return m_queueRunning; }
+    int queueCount() const { return m_queue.size(); }
+    void processNextQueueItem();
+
     /* Worker thread */
     QThread *m_thread = nullptr;
     std::atomic<bool> m_cancel{false};
 
     static int progressCB(int current, int total, void *ctx);
+    static int queueProgressCB(int current, int total, void *ctx);
     void setStatus(const QString &s);
     static QImage bayerToQImage(const uint16_t *bayer, int w, int h);
 };

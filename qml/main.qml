@@ -7,8 +7,8 @@ import QtQuick.Dialogs
 ApplicationWindow {
     id: root
     visible: true
-    width: 1020
-    height: 840
+    width: 1080
+    height: 1040
     minimumWidth: 800
     minimumHeight: 700
     title: "BayerFlow"
@@ -658,14 +658,116 @@ ApplicationWindow {
                     }
                 }
             }
+
+            /* ======== BATCH QUEUE ======== */
+            Rectangle {
+                id: queueCard
+                visible: backend.queueCount > 0 || backend.isQueueRunning
+                width: parent.width
+                height: Math.min(70 + backend.queueCount * 50, 320)
+                color: "#151515"; radius: 8
+                border.color: "#222222"; border.width: 1
+
+                Text {
+                    x: 16; y: 12
+                    text: "QUEUE (" + backend.queueCount + ")"
+                    color: "#e87a20"; font.pixelSize: 11; font.weight: Font.Bold; font.letterSpacing: 2
+                }
+
+                Row {
+                    x: 16; y: 36; spacing: 8
+                    StyledButton {
+                        label: "Cancel All"; width: 80; height: 24
+                        visible: backend.isQueueRunning
+                        onClicked: backend.cancelQueue()
+                    }
+                    StyledButton {
+                        label: "Clear"; width: 50; height: 24
+                        visible: !backend.isQueueRunning
+                        onClicked: backend.clearQueue()
+                    }
+                }
+
+                Column {
+                    x: 16; y: 64
+                    width: parent.width - 32
+                    spacing: 4
+
+                    Repeater {
+                        model: backend.queueModel
+                        Rectangle {
+                            width: parent.width; height: 42; radius: 4
+                            color: "#161616"; border.color: "#1a1a1a"; border.width: 1
+
+                            Row {
+                                anchors.fill: parent; anchors.margins: 8; spacing: 8
+
+                                Text {
+                                    text: modelData.status === "done" ? "\u2713" :
+                                          modelData.status === "failed" ? "\u2717" :
+                                          modelData.status === "processing" ? "\u25B6" : "\u25CB"
+                                    color: modelData.status === "done" ? "#4caf50" :
+                                           modelData.status === "failed" ? "#f44336" :
+                                           modelData.status === "processing" ? "#e87a20" : "#555"
+                                    font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                Column {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - 80
+                                    Text { text: modelData.filename; color: "#ccc"; font.pixelSize: 11; elide: Text.ElideMiddle; width: parent.width }
+                                    Text {
+                                        visible: modelData.status === "processing" || modelData.status === "done" || modelData.status === "failed"
+                                        text: modelData.message
+                                        color: modelData.status === "failed" ? "#f44336" : "#666"; font.pixelSize: 9
+                                    }
+                                    Rectangle {
+                                        visible: modelData.status === "processing"
+                                        width: parent.width; height: 2; radius: 1; color: "#2a2a2a"
+                                        Rectangle {
+                                            width: parent.width * modelData.progressPercent / 100; height: 2; radius: 1; color: "#e87a20"
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: modelData.status !== "processing"
+                                    text: "\u00d7"; color: qrMA.containsMouse ? "#e87a20" : "#444"; font.pixelSize: 16
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    MouseArea { id: qrMA; anchors.fill: parent; anchors.margins: -6; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: backend.removeFromQueue(index)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     /* ---- File Dialogs ---- */
     FileDialog {
-        id: inputDialog; title: "Select Input"
-        nameFilters: ["Video files (*.mov *.MOV *.braw *.dng *.ari *.crm)"]
-        onAccepted: backend.inputPath = selectedFile
+        id: inputDialog; title: "Select Input File(s)"
+        nameFilters: ["Video files (*.mov *.MOV *.braw *.dng *.ari *.crm *.r3d *.nraw *.mxf)"]
+        fileMode: FileDialog.OpenFiles
+        onAccepted: {
+            var files = selectedFiles
+            if (files.length === 0) return
+            /* First file goes to the main input */
+            backend.inputPath = files[0]
+            /* Additional files get added to the queue */
+            for (var i = 1; i < files.length; i++) {
+                var f = files[i].toString()
+                if (f.startsWith("file:///")) f = f.substring(8)
+                var out = f.replace(/(\.[^.]+)$/, "_denoised$1")
+                backend.addToQueue(f, out)
+            }
+            if (files.length > 1) {
+                /* Also add the first file to queue */
+                backend.addToQueue(backend.inputPath, backend.outputPath)
+            }
+        }
     }
     FileDialog {
         id: outputDialog; title: "Select Output"

@@ -2,6 +2,8 @@
 #include <QUrl>
 #include <QSettings>
 #include <QDir>
+#include <QRegularExpression>
+#include <QDateTime>
 #include <cstdlib>
 
 extern "C" {
@@ -337,6 +339,154 @@ void Backend::restoreSessionState(const QVariantMap &s)
     free(m_bayer); m_bayer = nullptr;
     emit previewChanged();
     emit previewModeChanged();
+}
+
+/* ---- Batch Queue ---- */
+
+QVariantList Backend::queueModel() const
+{
+    QVariantList list;
+    for (const auto &item : m_queue) {
+        QVariantMap m;
+        m["inputPath"] = item.inputPath;
+        m["outputPath"] = item.outputPath;
+        m["filename"] = item.filename;
+        m["status"] = item.status;
+        m["progressPercent"] = item.progressPercent;
+        m["message"] = item.message;
+        list.append(m);
+    }
+    return list;
+}
+
+void Backend::addToQueue(const QString &input, const QString &output)
+{
+    QueueItem item;
+    item.inputPath = input;
+    item.outputPath = output;
+    item.filename = input.split(QRegularExpression("[/\\\\]")).last();
+    item.status = "pending";
+    m_queue.append(item);
+    emit queueChanged();
+
+    /* Auto-start queue if not already running */
+    if (!m_queueRunning)
+        startQueue();
+}
+
+void Backend::removeFromQueue(int index)
+{
+    if (index >= 0 && index < m_queue.size()) {
+        m_queue.removeAt(index);
+        emit queueChanged();
+    }
+}
+
+void Backend::clearQueue()
+{
+    if (m_queueRunning) return;
+    m_queue.clear();
+    emit queueChanged();
+}
+
+int Backend::queueProgressCB(int current, int total, void *ctx)
+{
+    auto *self = static_cast<Backend *>(ctx);
+    if (self->m_queueIndex >= 0 && self->m_queueIndex < self->m_queue.size()) {
+        self->m_queue[self->m_queueIndex].progressPercent = total > 0 ? current * 100 / total : 0;
+        self->m_queue[self->m_queueIndex].message = QString("Frame %1 / %2").arg(current).arg(total);
+        QMetaObject::invokeMethod(self, "queueChanged", Qt::QueuedConnection);
+    }
+    return self->m_cancel.load() ? 1 : 0;
+}
+
+void Backend::startQueue()
+{
+    if (m_queueRunning || m_queue.isEmpty()) return;
+    m_queueRunning = true;
+    m_cancel.store(false);
+    m_queueIndex = -1;
+    emit queueChanged();
+    processNextQueueItem();
+}
+
+void Backend::processNextQueueItem()
+{
+    /* Find next pending item */
+    m_queueIndex = -1;
+    for (int i = 0; i < m_queue.size(); i++) {
+        if (m_queue[i].status == "pending") {
+            m_queueIndex = i;
+            break;
+        }
+    }
+
+    if (m_queueIndex < 0) {
+        /* All done */
+        m_queueRunning = false;
+        emit queueChanged();
+        return;
+    }
+
+    m_queue[m_queueIndex].status = "processing";
+    emit queueChanged();
+
+    int idx = m_queueIndex;
+    QThread *t = QThread::create([this, idx]() {
+        QByteArray inPath = m_queue[idx].inputPath.toLocal8Bit();
+        QByteArray outPath = m_queue[idx].outputPath.toLocal8Bit();
+
+        int w = 0, h = 0;
+        denoise_probe_dimensions(inPath.data(), &w, &h);
+        if (w > 0 && h > 0)
+            platform_gpu_ring_init(m_windowSize, w, h);
+
+        DenoiseCConfig cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.window_size          = m_windowSize;
+        cfg.strength             = m_strength;
+        cfg.spatial_strength     = m_spatialStrength;
+        cfg.temporal_filter_mode = m_tfMode;
+        cfg.use_cnn_postfilter   = m_useCNN ? 1 : 0;
+        cfg.auto_dark_frame      = 1;
+        cfg.output_format        = 0;
+        cfg.collect_training_data = m_trainingConsent ? 1 : 0;
+        cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
+        cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
+        cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
+
+        int result = denoise_file(inPath.data(), outPath.data(), &cfg, queueProgressCB, this);
+
+        QMetaObject::invokeMethod(this, [this, idx, result]() {
+            if (idx < m_queue.size()) {
+                if (result == DENOISE_OK) {
+                    m_queue[idx].status = "done";
+                    m_queue[idx].progressPercent = 100;
+                    m_queue[idx].message = "Complete";
+                } else if (result == DENOISE_ERR_CANCELLED) {
+                    m_queue[idx].status = "failed";
+                    m_queue[idx].message = "Cancelled";
+                } else {
+                    m_queue[idx].status = "failed";
+                    m_queue[idx].message = QString("Error %1").arg(result);
+                }
+            }
+            emit queueChanged();
+
+            if (!m_cancel.load())
+                processNextQueueItem();
+            else {
+                m_queueRunning = false;
+                emit queueChanged();
+            }
+        }, Qt::QueuedConnection);
+    });
+    t->start();
+}
+
+void Backend::cancelQueue()
+{
+    m_cancel.store(true);
 }
 
 void Backend::setTrainingConsent(bool v)
