@@ -2,6 +2,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QIcon>
 #include "Backend.h"
 #include "ImageProvider.h"
 
@@ -17,6 +18,7 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setApplicationName("BayerFlow");
     app.setOrganizationName("BayerFlow");
+    app.setWindowIcon(QIcon("C:/Users/kaden/BayerFlow-Win/qml/logo.png"));
 
     Backend backend;
 
