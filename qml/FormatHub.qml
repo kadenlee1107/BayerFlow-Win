@@ -46,13 +46,8 @@ Item {
             var w = width, h = height
             ctx.clearRect(0, 0, w, h)
 
-            /* 1. Subtle vertical gradient: slightly lighter at horizon */
-            var grad = ctx.createLinearGradient(0, 0, 0, h)
-            grad.addColorStop(0.0, "#0d0d0d")
-            grad.addColorStop(0.45, "#141414")
-            grad.addColorStop(0.55, "#111111")
-            grad.addColorStop(1.0, "#0a0a0a")
-            ctx.fillStyle = grad
+            /* 1. Flat dark background — avoids 8-bit banding */
+            ctx.fillStyle = "#0a0a0a"
             ctx.fillRect(0, 0, w, h)
 
             /* 2. Perspective vertical lines converging to vanishing point */

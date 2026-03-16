@@ -15,6 +15,7 @@ ApplicationWindow {
     color: "#0a0a0a"
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    property bool showSplash: true
     property bool showHub: true
 
     /* ---- Resize handles ---- */
@@ -34,6 +35,7 @@ ApplicationWindow {
     /* ---- Custom Title Bar ---- */
     Rectangle {
         id: titleBar
+        visible: !root.showSplash
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
@@ -131,6 +133,7 @@ ApplicationWindow {
     /* ---- Status Bar ---- */
     Rectangle {
         id: statusBar
+        visible: !root.showSplash
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         height: 26; z: 10
         gradient: Gradient {
@@ -702,5 +705,12 @@ ApplicationWindow {
             console.log("BF: showing onboarding")
             onboardingPopup.visible = true
         }
+    }
+
+    /* ---- Splash Screen ---- */
+    SplashScreen {
+        id: splashScreen
+        visible: root.showSplash
+        onFinished: root.showSplash = false
     }
 }
