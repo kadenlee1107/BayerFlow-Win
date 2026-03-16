@@ -289,6 +289,7 @@ void Backend::startDenoise()
         cfg.start_frame          = m_startFrame;
         cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
+        cfg.motion_avg           = m_motionAvg;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
@@ -488,6 +489,7 @@ void Backend::processNextQueueItem()
         cfg.start_frame          = m_startFrame;
         cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
+        cfg.motion_avg           = m_motionAvg;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
@@ -524,6 +526,49 @@ void Backend::processNextQueueItem()
 void Backend::cancelQueue()
 {
     m_cancel.store(true);
+}
+
+/* ---- Motion Analysis ---- */
+
+extern "C" int analyze_motion(const char *input_path, float *avg_motion, float *max_motion,
+                               DenoiseCProgressCB progress_cb, void *progress_ctx);
+
+void Backend::analyzeMotion()
+{
+    if (m_inputPath.isEmpty() || m_analyzing) return;
+    m_analyzing = true;
+    m_motionAvg = 0;
+    emit motionAnalyzed();
+    setStatus("Analyzing motion...");
+
+    QThread *t = QThread::create([this]() {
+        QByteArray inPath = m_inputPath.toLocal8Bit();
+        float avg = 0, mx = 0;
+        int result = analyze_motion(inPath.data(), &avg, &mx, nullptr, nullptr);
+
+        QMetaObject::invokeMethod(this, [this, result, avg]() {
+            m_analyzing = false;
+            if (result == 0) {
+                m_motionAvg = avg;
+                /* Auto-suggest preset based on motion */
+                if (avg < 1.0f) setStatus(QString("Motion: %1 px (very low — try Light preset)").arg(avg, 0, 'f', 1));
+                else if (avg < 3.0f) setStatus(QString("Motion: %1 px (moderate — Standard preset)").arg(avg, 0, 'f', 1));
+                else setStatus(QString("Motion: %1 px (high — Strong preset recommended)").arg(avg, 0, 'f', 1));
+            } else {
+                setStatus("Motion analysis failed");
+            }
+            emit motionAnalyzed();
+        }, Qt::QueuedConnection);
+    });
+    t->start();
+}
+
+QString Backend::motionHint() const
+{
+    if (m_motionAvg <= 0) return "";
+    if (m_motionAvg < 1.0f) return "Very low motion — Light preset";
+    if (m_motionAvg < 3.0f) return "Moderate motion — Standard preset";
+    return "High motion — Strong preset";
 }
 
 /* ---- LUT ---- */

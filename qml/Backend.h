@@ -45,6 +45,11 @@ class Backend : public QObject {
     Q_PROPERTY(QString etaText READ etaText NOTIFY progressChanged)
     Q_PROPERTY(double fpsValue READ fpsValue NOTIFY progressChanged)
 
+    /* Motion analysis */
+    Q_PROPERTY(float motionAvg READ motionAvg NOTIFY motionAnalyzed)
+    Q_PROPERTY(bool isAnalyzing READ isAnalyzing NOTIFY motionAnalyzed)
+    Q_PROPERTY(QString motionHint READ motionHint NOTIFY motionAnalyzed)
+
     /* LUT preview */
     Q_PROPERTY(bool lutEnabled MEMBER m_lutEnabled NOTIFY lutChanged)
     Q_PROPERTY(float lutBlend MEMBER m_lutBlend NOTIFY lutChanged)
@@ -138,6 +143,12 @@ public slots:
     /* LUT */
     Q_INVOKABLE void loadLUT(const QString &path);
     Q_INVOKABLE void clearLUT();
+
+    /* Motion analysis */
+    Q_INVOKABLE void analyzeMotion();
+    float motionAvg() const { return m_motionAvg; }
+    bool isAnalyzing() const { return m_analyzing; }
+    QString motionHint() const;
     QString lutName() const { return m_lutName; }
     bool isWatching() const { return m_watching; }
     QString watchFolderPath() const { return m_watchPath; }
@@ -156,6 +167,7 @@ signals:
     void queueChanged();
     void watchChanged();
     void lutChanged();
+    void motionAnalyzed();
     void previewLoadingChanged();
     void previewFrameChanged();
     void previewModeChanged();
@@ -221,6 +233,10 @@ private:
     bool isQueueRunning() const { return m_queueRunning; }
     int queueCount() const { return m_queue.size(); }
     void processNextQueueItem();
+
+    /* Motion analysis */
+    float m_motionAvg = 0;
+    bool m_analyzing = false;
 
     /* LUT */
     bool m_lutEnabled = false;

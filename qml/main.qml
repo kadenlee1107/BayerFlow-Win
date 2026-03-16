@@ -558,7 +558,7 @@ ApplicationWindow {
                 width: parent.width; spacing: 10
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 240; title: "NOISE PROFILE"
+                    width: (parent.width - 10) / 2; height: 275; title: "NOISE PROFILE"
 
                     Grid {
                         anchors.top: parent.top; anchors.topMargin: 32
@@ -576,7 +576,7 @@ ApplicationWindow {
                 }
 
                 Card {
-                    width: (parent.width - 10) / 2; height: 240; title: "SETTINGS"
+                    width: (parent.width - 10) / 2; height: 275; title: "SETTINGS"
 
                     Column {
                         anchors.top: parent.top; anchors.topMargin: 30
@@ -659,6 +659,22 @@ ApplicationWindow {
                                 currentIndex: backend.outputFormat
                                 onActivated: backend.outputFormat = currentIndex
                                 width: 160; height: 26
+                            }
+                        }
+
+                        /* Motion analysis */
+                        Row {
+                            spacing: 8; width: parent.width
+                            StyledButton {
+                                label: backend.isAnalyzing ? "Analyzing..." : "Analyze Motion"
+                                width: 110; height: 24
+                                enabled: !backend.isAnalyzing && backend.inputPath !== ""
+                                onClicked: backend.analyzeMotion()
+                            }
+                            Text {
+                                visible: backend.motionHint !== ""
+                                text: backend.motionHint
+                                color: "#888"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter
                             }
                         }
                     }
