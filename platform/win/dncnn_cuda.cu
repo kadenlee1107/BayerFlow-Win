@@ -99,8 +99,8 @@ __global__ void blend_residual_k(
     bayer[(y * 2 + dy) * width + (x * 2 + dx)] = (uint16_t)(d * 65535.0f + 0.5f);
 }
 
-/* ---- Try ONNX CPU init (preferred path) ---- */
-static int try_onnx_cpu_init(const char *bin_path) {
+/* ---- Try ONNX init (GPU if RAFT disabled, otherwise CPU) ---- */
+static int try_onnx_init(const char *bin_path) {
     /* Derive dncnn.onnx path from the .bin path */
     char onnx_path[512];
     const char *dir_end = strrchr(bin_path, '\\');
@@ -119,25 +119,50 @@ static int try_onnx_cpu_init(const char *bin_path) {
     g_dncnn_ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
     if (!g_dncnn_ort) return -1;
 
-    g_dncnn_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "dncnn_cpu", &g_dncnn_env);
+    g_dncnn_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "dncnn", &g_dncnn_env);
     g_dncnn_ort->CreateSessionOptions(&g_dncnn_sopts);
     g_dncnn_ort->SetSessionGraphOptimizationLevel(g_dncnn_sopts, ORT_ENABLE_ALL);
-    g_dncnn_ort->SetIntraOpNumThreads(g_dncnn_sopts, 8);  /* use 8 CPU threads */
 
-    /* CPU only — no CUDA EP, keeps GPU free for RAFT */
+    /* Check if GPU is available for DnCNN (when RAFT ONNX is disabled) */
+    const char *no_onnx_raft = getenv("BAYERFLOW_NO_ONNX_RAFT");
+    int try_gpu = (no_onnx_raft && no_onnx_raft[0] == '1');
+
+    if (try_gpu) {
+        /* Try CUDA EP — full GPU available since RAFT uses Python server */
+        OrtCUDAProviderOptionsV2 *cuda_opts = NULL;
+        OrtStatus *cs = g_dncnn_ort->CreateCUDAProviderOptions(&cuda_opts);
+        if (cs == NULL) {
+            const char *keys[] = {"device_id", "arena_extend_strategy", "gpu_mem_limit"};
+            const char *vals[] = {"0", "kSameAsRequested", "4294967296"};
+            g_dncnn_ort->UpdateCUDAProviderOptions(cuda_opts, keys, vals, 3);
+            cs = g_dncnn_ort->SessionOptionsAppendExecutionProvider_CUDA_V2(g_dncnn_sopts, cuda_opts);
+            g_dncnn_ort->ReleaseCUDAProviderOptions(cuda_opts);
+            if (cs != NULL) {
+                fprintf(stderr, "DnCNN ORT: CUDA EP failed, falling back to CPU\n");
+                g_dncnn_ort->ReleaseStatus(cs);
+                try_gpu = 0;
+            }
+        }
+    }
+
+    if (!try_gpu) {
+        /* CPU mode with 8 threads */
+        g_dncnn_ort->SetIntraOpNumThreads(g_dncnn_sopts, 8);
+    }
+
     wchar_t wpath[512];
     for (size_t i = 0; i <= strlen(onnx_path); i++) wpath[i] = (wchar_t)onnx_path[i];
 
     OrtStatus *st = g_dncnn_ort->CreateSession(g_dncnn_env, wpath, g_dncnn_sopts, &g_dncnn_session);
     if (st != NULL) {
-        fprintf(stderr, "DnCNN ORT CPU: CreateSession failed: %s\n", g_dncnn_ort->GetErrorMessage(st));
+        fprintf(stderr, "DnCNN ORT: CreateSession failed: %s\n", g_dncnn_ort->GetErrorMessage(st));
         g_dncnn_ort->ReleaseStatus(st);
         return -1;
     }
 
     g_dncnn_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &g_dncnn_mem);
     g_use_ort_cpu = 1;
-    fprintf(stderr, "DnCNN ORT CPU: loaded %s (8 threads, oneDNN)\n", onnx_path);
+    fprintf(stderr, "DnCNN ORT: loaded %s (%s)\n", onnx_path, try_gpu ? "CUDA GPU" : "CPU 8 threads");
     return 0;
 }
 
@@ -177,7 +202,7 @@ static int dncnn_ort_cpu_run(const float *h_in, float *h_out, int H, int W) {
 /* ---- Load weights from .bin file ---- */
 extern "C" int dncnn_cuda_init(const char *weight_path) {
     /* Try ONNX CPU first (faster, frees GPU for RAFT) */
-    if (try_onnx_cpu_init(weight_path) == 0) return 0;
+    if (try_onnx_init(weight_path) == 0) return 0;
 
     /* Fallback: load .bin weights for CUDA kernel path */
     FILE *f = fopen(weight_path, "rb");

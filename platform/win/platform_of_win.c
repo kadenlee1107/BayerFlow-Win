@@ -28,8 +28,14 @@ static int g_use_onnx = 0;
 int platform_of_init(int width, int height) {
     g_of_init_w = width >> 1;
     g_of_init_h = height >> 1;
+    /* Check if user wants Python-only OF (frees GPU VRAM for DnCNN ONNX) */
+    const char *no_onnx_raft = getenv("BAYERFLOW_NO_ONNX_RAFT");
+    if (no_onnx_raft && no_onnx_raft[0] == '1') {
+        fprintf(stderr, "OF: RAFT Python server (ONNX disabled via env) %dx%d\n", g_of_init_w, g_of_init_h);
+        g_use_onnx = 0;
+    }
     /* Try ONNX C API first — no Python, no file I/O */
-    if (raft_onnx_init("C:\\Users\\kaden\\BayerFlow-Win\\raft_small.onnx", g_of_init_w, g_of_init_h) == 0) {
+    else if (raft_onnx_init("C:\\Users\\kaden\\BayerFlow-Win\\raft_small.onnx", g_of_init_w, g_of_init_h) == 0) {
         fprintf(stderr, "OF: RAFT ONNX C API %dx%d\n", g_of_init_w, g_of_init_h);
         g_use_onnx = 1;
     } else {
