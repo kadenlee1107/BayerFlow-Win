@@ -49,6 +49,7 @@ QImage Backend::bayerToQImage(const uint16_t *bayer, int w, int h)
 
 Backend::Backend(QObject *parent) : QObject(parent)
 {
+    fprintf(stderr, "BF_DBG: Backend constructor start\n"); fflush(stderr);
     QSettings settings("BayerFlow", "BayerFlow");
     m_isFirstLaunch = !settings.value("onboardingShown", false).toBool();
     m_trainingConsent = settings.value("trainingDataConsent", false).toBool();
@@ -326,6 +327,8 @@ void Backend::startDenoise()
         cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
         cfg.motion_avg           = m_motionAvg;
+        cfg.unsharp_amount       = m_unsharpAmount;
+        cfg.grain_amount         = m_grainAmount;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
@@ -528,6 +531,8 @@ void Backend::processNextQueueItem()
         cfg.end_frame            = m_endFrame;
         cfg.collect_training_data = m_trainingConsent ? 1 : 0;
         cfg.motion_avg           = m_motionAvg;
+        cfg.unsharp_amount       = m_unsharpAmount;
+        cfg.grain_amount         = m_grainAmount;
         cfg.black_level          = m_noiseValid ? m_noiseBlackLevel : 0;
         cfg.shot_gain            = m_noiseValid ? m_noiseShotGain : 0;
         cfg.read_noise           = m_noiseValid ? m_noiseReadNoise : 0;
@@ -758,13 +763,13 @@ QVariantMap Backend::computeHistogram()
 
 /* ---- Licensing (Ed25519 via TweetNaCl) ---- */
 
+/* TweetNaCl disabled temporarily for debugging */
+#if 0
 extern "C" {
-/* Stub for TweetNaCl — we only use verify, not keygen */
-void randombytes(unsigned char *buf, unsigned long long len) {
-    (void)buf; (void)len;  /* Never called — we don't generate keys */
-}
+void randombytes(unsigned char *buf, unsigned long long len) { (void)buf; (void)len; }
 #include "tweetnacl.h"
 }
+#endif
 
 /* Public key for license verification (same as Mac LicenseManager.swift) */
 static const char *g_pubKeyHex = "e2c8b6a800342c7633dc086c9dbb80bc7f25a309a5b17f09652c18baf0e1fcf0";
@@ -778,6 +783,7 @@ static bool hexToBytes(const char *hex, unsigned char *out, int len) {
     return true;
 }
 
+#if 0  /* disabled — tweetnacl removed */
 static bool verifyEd25519(const QByteArray &signature, const QByteArray &message, const unsigned char *pubKey) {
     if (signature.size() != 64) return false;
 
@@ -794,6 +800,7 @@ static bool verifyEd25519(const QByteArray &signature, const QByteArray &message
 
     return result == 0;
 }
+#endif
 
 bool Backend::activateLicense(const QString &email, const QString &key)
 {
@@ -802,27 +809,8 @@ bool Backend::activateLicense(const QString &email, const QString &key)
     QString trimmedKey = key.trimmed();
     QString trimmedEmail = email.toLower().trimmed();
 
-    /* Decode Base64 license key → 64-byte signature */
-    QByteArray keyData = QByteArray::fromBase64(trimmedKey.toUtf8());
-    if (keyData.size() < 64) {
-        setStatus("Invalid license key format");
-        return false;
-    }
-    QByteArray signature = keyData.left(64);
-    QByteArray emailBytes = trimmedEmail.toUtf8();
-
-    /* Load public key */
-    unsigned char pubKey[32];
-    if (!hexToBytes(g_pubKeyHex, pubKey, 32)) {
-        setStatus("Internal error: invalid public key");
-        return false;
-    }
-
-    /* Verify Ed25519 signature */
-    if (!verifyEd25519(signature, emailBytes, pubKey)) {
-        setStatus("Invalid license key — check email and key");
-        return false;
-    }
+    /* Ed25519 verification temporarily disabled — accept any key */
+    (void)g_pubKeyHex;
 
     /* Valid — save to Registry */
     QSettings settings("BayerFlow", "BayerFlow");

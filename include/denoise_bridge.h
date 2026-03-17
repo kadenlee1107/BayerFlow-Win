@@ -36,6 +36,8 @@ typedef struct {
     float black_level;           /* sensor black level in 16-bit ADU (0 = use default 6032) */
     float shot_gain;             /* shot noise gain (0 = use default 180) */
     float read_noise;            /* read noise floor in 16-bit ADU (0 = use default 616) */
+    float unsharp_amount;        /* 0=off, 0.3=subtle, 0.5=moderate, 1.0=strong */
+    float grain_amount;          /* 0=off, 0.1=subtle, 0.3=moderate, 0.5=heavy film grain */
 } DenoiseCConfig;
 
 /* Progress callback called once per encoded frame.

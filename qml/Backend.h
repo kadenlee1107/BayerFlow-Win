@@ -40,6 +40,8 @@ class Backend : public QObject {
     Q_PROPERTY(float spatialStrength MEMBER m_spatialStrength NOTIFY settingsChanged)
     Q_PROPERTY(int tfMode MEMBER m_tfMode NOTIFY settingsChanged)
     Q_PROPERTY(bool useCNN MEMBER m_useCNN NOTIFY settingsChanged)
+    Q_PROPERTY(float unsharpAmount MEMBER m_unsharpAmount NOTIFY settingsChanged)
+    Q_PROPERTY(float grainAmount MEMBER m_grainAmount NOTIFY settingsChanged)
     Q_PROPERTY(bool protectSubjects MEMBER m_protectSubjects NOTIFY settingsChanged)
     Q_PROPERTY(bool invertMask MEMBER m_invertMask NOTIFY settingsChanged)
     Q_PROPERTY(QString preset READ preset WRITE setPreset NOTIFY presetChanged)
@@ -244,6 +246,8 @@ private:
     float m_spatialStrength = 0.0f;
     int m_tfMode = 2;
     bool m_useCNN = true;
+    float m_unsharpAmount = 0.0f;  /* 0=off, 0.3=subtle, 0.5=moderate, 1.0=strong */
+    float m_grainAmount = 0.0f;    /* 0=off, 0.1=subtle, 0.3=moderate, 0.5=heavy */
     bool m_protectSubjects = false;
     bool m_invertMask = false;
     QString m_preset = "Strong";

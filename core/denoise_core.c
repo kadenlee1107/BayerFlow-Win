@@ -571,6 +571,8 @@ typedef struct {
     int   use_cnn;
     int   shared_buf_idx;      /* ≥0: use zero-copy shared MTLBuffer path */
     float unsharp_amount;      /* 0 = off, 0.3 = subtle, 0.5 = moderate */
+    float grain_amount;        /* 0 = off, 0.1 = subtle, 0.3 = moderate */
+    unsigned int frame_index;  /* for deterministic grain seed */
     double t_accum_spatial;
     double t_accum_cnn;
     double t_accum_unsharp;
@@ -901,6 +903,43 @@ static void unsharp_mask_bayer(uint16_t *frame, int width, int height,
     free(orig);
 }
 
+/* Film grain simulation: adds photographic-looking noise back to denoised footage.
+ * Uses signal-dependent Poisson-like noise matching cinema film grain characteristics.
+ * amount: 0 = off, 0.1 = subtle, 0.3 = moderate, 0.5 = heavy grain.
+ * Operates on raw Bayer so grain has correct spatial structure after debayer. */
+static void add_film_grain(uint16_t *frame, int width, int height,
+                           float amount, unsigned int seed) {
+    if (amount <= 0) return;
+
+    /* Simple LCG PRNG for deterministic, per-frame grain */
+    unsigned int rng = seed;
+    #define GRAIN_RAND() (rng = rng * 1664525u + 1013904223u, (int)(rng >> 16) - 32768)
+
+    float scale = amount * 400.0f;  /* ~400 ADU at amount=1.0 in 16-bit */
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int idx = y * width + x;
+            int val = frame[idx];
+
+            /* Signal-dependent grain: brighter pixels get proportionally more grain
+             * (matches Poisson noise characteristics of film) */
+            float signal_factor = 0.3f + 0.7f * ((float)val / 65535.0f);
+            float grain_sigma = scale * signal_factor;
+
+            /* Box-Muller approximation: sum of 3 uniform randoms ≈ Gaussian */
+            float noise = (float)(GRAIN_RAND() + GRAIN_RAND() + GRAIN_RAND()) / (32768.0f * 1.732f);
+            noise *= grain_sigma;
+
+            int result = val + (int)noise;
+            if (result < 0) result = 0;
+            if (result > 65535) result = 65535;
+            frame[idx] = (uint16_t)result;
+        }
+    }
+    #undef GRAIN_RAND
+}
+
 /* ---- Training Data Patch Extraction ---- */
 
 #define TRAINING_PATCH_SIZE 256
@@ -1088,6 +1127,13 @@ static void *cnn_thread_func(void *arg) {
             unsharp_mask_bayer(ctx->bayer_buf, ctx->width, ctx->height,
                                ctx->unsharp_amount, ctx->noise_sigma);
             ctx->t_accum_unsharp += timer_now() - t0;
+        }
+
+        /* Film grain add-back: adds photographic grain after all denoising */
+        if (ctx->grain_amount > 0) {
+            unsigned int seed = ctx->frame_index * 2654435761u + 12345u;
+            add_film_grain(ctx->bayer_buf, ctx->width, ctx->height,
+                          ctx->grain_amount, seed);
         }
 
         pthread_mutex_lock(&sync->mutex);
@@ -2164,7 +2210,8 @@ int denoise_file(
             cnn_ctx.cnn_blend_pass2 = 0.0f;
             cnn_ctx.use_cnn = 0;
         }
-        cnn_ctx.unsharp_amount = 0.0f;
+        cnn_ctx.unsharp_amount = cfg->unsharp_amount;
+        cnn_ctx.grain_amount = cfg->grain_amount;
 
         pthread_t of_tid, enc_tid, cnn_tid;
         pthread_create(&of_tid, NULL, of_thread_func, &of_ctx);

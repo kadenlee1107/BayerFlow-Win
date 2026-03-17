@@ -670,6 +670,19 @@ ApplicationWindow {
                             Text { text: backend.useCNN ? "ON (slower, better quality)" : "OFF (faster)"; color: "#555"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                         }
 
+                        /* Sharpening + Grain */
+                        Row {
+                            spacing: 8; width: parent.width
+                            Text { text: "Sharpen"; color: "#666"; font.pixelSize: 11; width: 50; anchors.verticalCenter: parent.verticalCenter }
+                            Slider { width: 90; height: 20; from: 0; to: 1; value: backend.unsharpAmount; stepSize: 0.1
+                                onMoved: backend.unsharpAmount = value; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: backend.unsharpAmount.toFixed(1); color: "#888"; font.pixelSize: 10; width: 25; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "Grain"; color: "#666"; font.pixelSize: 11; width: 35; anchors.verticalCenter: parent.verticalCenter }
+                            Slider { width: 90; height: 20; from: 0; to: 0.5; value: backend.grainAmount; stepSize: 0.05
+                                onMoved: backend.grainAmount = value; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: backend.grainAmount.toFixed(2); color: "#888"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                        }
+
                         /* Subject protection */
                         Row {
                             spacing: 8; width: parent.width
